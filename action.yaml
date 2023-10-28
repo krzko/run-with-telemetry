@@ -43,7 +43,7 @@ inputs:
       system using the shell keyword. Supported options are bash, pwsh,
       python, sh, cmd, pwsh and powershell. The default is bash.
   step-name:
-    required: false
+    required: true
     description: >
       The name of the step.
 
