@@ -1,0 +1,249 @@
+version: '3'
+
+vars:
+  BUILD_VERSION:
+    # sh: git describe --tags
+    sh: echo "0.0.1"
+  BUILD_DATE:
+    sh: date "+%F %T"
+  COMMIT_ID:
+    sh: git rev-parse HEAD
+
+tasks:
+  clean:
+    cmds:
+      - rm -rf bin
+      - mkdir -p bin
+  build-tpl:
+    label: build-{{.TASK}}
+    cmds:
+      - |
+        GOOS={{.GOOS}} GOARCH={{.GOARCH}} GOARM={{.GOARM}} GOMIPS={{.GOMIPS}} GOAMD64={{.GOAMD64}} \
+        go build -o bin/run-with-telemetry-{{.TASK}} -ldflags \
+        "-w -s -X 'main.BUILD_VERSION={{.BUILD_VERSION}}' -X 'main.BUILD_DATE={{.BUILD_DATE}}' -X 'main.COMMIT_ID={{.COMMIT_ID}}'" cmd/run-with-telemetry/main.go
+  linux-386:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: 386
+        }
+  linux-amd64:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: amd64
+        }
+  linux-amd64_v2:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: amd64,
+          GOAMD64: v2
+        }
+  linux-amd64_v3:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: amd64,
+          GOAMD64: v3
+        }
+  linux-amd64_v4:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: amd64,
+          GOAMD64: v4
+        }
+  linux-armv5:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: arm,
+          GOARM: 5
+        }
+  linux-armv6:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: arm,
+          GOARM: 6
+        }
+  linux-armv7:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: arm,
+          GOARM: 7
+        }
+  linux-armv8:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: arm64
+        }
+  linux-mips_hardfloat:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: mips,
+          GOMIPS: hardfloat
+        }
+  linux-mipsle_softfloat:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: mipsle,
+          GOMIPS: softfloat
+        }
+  linux-mipsle_hardfloat:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: mipsle,
+          GOMIPS: hardfloat
+        }
+  linux-mips64:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: mips64
+        }
+  linux-mips64le:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: linux,
+          GOARCH: mips64le
+        }
+  windows-386.exe:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: windows,
+          GOARCH: 386
+        }
+  windows-amd64.exe:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: windows,
+          GOARCH: amd64
+        }
+  windows-amd64_v2.exe:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: windows,
+          GOARCH: amd64,
+          GOAMD64: v2
+        }
+  windows-amd64_v3.exe:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: windows,
+          GOARCH: amd64,
+          GOAMD64: v3
+        }
+  windows-amd64_v4.exe:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: windows,
+          GOARCH: amd64,
+          GOAMD64: v4
+        }
+  darwin-amd64:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: darwin,
+          GOARCH: amd64,
+        }
+  darwin-arm64:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: darwin,
+          GOARCH: arm64,
+        }        
+  freebsd-amd64:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: freebsd,
+          GOARCH: amd64,
+        }        
+  freebsd-arm64:
+    cmds:
+      - task: build-tpl
+        vars: {
+          TASK: "{{.TASK}}",
+          GOOS: freebsd,
+          GOARCH: arm64,
+        }        
+  default:
+    cmds:
+      - task: clean
+      # - task: linux-386
+      - task: linux-amd64
+      # - task: linux-amd64_v2
+      # - task: linux-amd64_v3
+      # - task: linux-amd64_v4
+      # - task: linux-armv5
+      # - task: linux-armv6
+      # - task: linux-armv7
+      - task: linux-armv8
+      # - task: linux-mips_hardfloat
+      # - task: linux-mipsle_softfloat
+      # - task: linux-mipsle_hardfloat
+      # - task: linux-mips64
+      # - task: linux-mips64le
+      # - task: windows-386.exe
+      - task: windows-amd64.exe
+      # - task: windows-amd64_v2.exe
+      # - task: windows-amd64_v3.exe
+      - task: windows-amd64_v4.exe
+      - task: darwin-amd64
+      - task: darwin-arm64
+      # - task: freebsd-amd64
+      # - task: freebsd-arm64
+  release:
+    cmds:
+      - task: default
+      - ghr -u finb -t $GITHUB_TOKEN -replace -recreate -name "Bump {{.BUILD_VERSION}}" --debug {{.BUILD_VERSION}} dist
