@@ -69,7 +69,7 @@ func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr st
 	return baseAttributes
 }
 
-func executeCommand(shell string, command string) (string, int, string, string, error) {
+func executeCommand(shell string, command string, span trace.Span) (string, int, string, string, error) {
 	var cmd *exec.Cmd
 	switch shell {
 	case "bash":
@@ -81,6 +81,17 @@ func executeCommand(shell string, command string) (string, int, string, string, 
 		shell = "bash"
 		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
 	}
+
+	// Get the trace context from the span
+	sc := span.SpanContext()
+	traceparent := fmt.Sprintf("00-%s-%s-01", sc.TraceID().String(), sc.SpanID().String())
+
+	// Set environment variables for the command
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("TRACEPARENT=%s", traceparent),
+		fmt.Sprintf("TRACEID=%s", sc.TraceID().String()),
+		fmt.Sprintf("SPANID=%s", sc.SpanID().String()),
+	)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -313,7 +324,7 @@ func main() {
 	shell := githubactions.GetInput("shell")
 	githubactions.Infof("Executing command: %s with shell: %s", params.Run, shell)
 
-	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run) // Capture the actual shell used
+	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run, span)
 	if err != nil {
 		githubactions.Errorf("Failed to execute command: %v", err)
 		span.RecordError(err)
