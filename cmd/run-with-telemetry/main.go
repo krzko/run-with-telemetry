@@ -266,32 +266,6 @@ func mapToCommaSeparatedString(m map[string]string) string {
 	return strings.Join(result, ",")
 }
 
-func parseAnnotatedCommands(commands string) []struct {
-	SpanName string
-	Command  string
-} {
-	var commandBlocks []struct {
-		SpanName string
-		Command  string
-	}
-
-	blocks := strings.Split(commands, "\n\n") // Assume two newlines as a separator
-	for _, block := range blocks {
-		lines := strings.Split(block, "\n")
-		if len(lines) > 1 && strings.HasPrefix(lines[0], "with_span") {
-			commandBlocks = append(commandBlocks, struct {
-				SpanName string
-				Command  string
-			}{
-				SpanName: strings.TrimSpace(strings.TrimPrefix(lines[0], "with_span")),
-				Command:  strings.Join(lines[1:], "\n"),
-			})
-		}
-	}
-
-	return commandBlocks
-}
-
 func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
 	parts := strings.Split(traceparent, "-")
 	if len(parts) < 3 {
@@ -364,45 +338,52 @@ func main() {
 
 	tracer := otel.Tracer("run-with-telemetry")
 
-	// Get the shell from input
+	var spanName string
+	if strings.Count(params.Run, "\n") > 0 {
+		spanName = "Executing multiple commands"
+	} else {
+		binaryName := strings.Fields(params.Run)[0] // Assumes the binary name has no spaces
+		spanName = fmt.Sprintf("Executing %s", binaryName)
+	}
+	_, span := tracer.Start(ctx, spanName)
+	defer span.End()
+
 	shell := githubactions.GetInput("shell")
+	githubactions.Infof("Executing command: %s with shell: %s", params.Run, shell)
 
-	commandBlocks := parseAnnotatedCommands(params.Run)
-	for _, block := range commandBlocks {
-		_, span := tracer.Start(ctx, block.SpanName)
-		defer span.End() // Ensure the span ends when the block of commands is finished executing
+	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run, span, params.OtelExporterOtlpHeaders)
 
-		usedShell, pid, stdout, stderr, err := executeCommand(shell, block.Command, span, params.OtelExporterOtlpHeaders)
+	if err != nil {
+		githubactions.Errorf("Failed to execute command: %v", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error()) // Set span status to Error
+		exitCode = 1                             // Record a non-zero exit code
 
-		if err != nil {
-			githubactions.Errorf("Failed to execute command: %v", err)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error()) // Set span status to Error
-			exitCode = 1                             // Record a non-zero exit code
-
-			// Prepare base attributes for span event
-			baseAttributes := []trace.EventOption{
-				trace.WithAttributes(
-					attribute.String("exception.type", "ExecutionError"),
-					attribute.String("exception.message", err.Error()),
-				),
-			}
-
-			// Create a new span event to record the exception along with stdout and stderr
-			span.AddEvent("Standard error", createEventAttributes(baseAttributes, stdout, stderr)...)
-		} else {
-			githubactions.Infof("Command executed successfully")
-			span.SetStatus(codes.Ok, "Command executed successfully") // Set span status to Ok
+		// Prepare base attributes for span event
+		baseAttributes := []trace.EventOption{
+			trace.WithAttributes(
+				attribute.String("exception.type", "ExecutionError"),
+				attribute.String("exception.message", err.Error()),
+			),
 		}
 
-		span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", block.Command)))
+		// Create a new span event to record the exception along with stdout and stderr
+		span.AddEvent("Standard error", createEventAttributes(baseAttributes, stdout, stderr)...)
 
-		span.SetAttributes(
-			attribute.String("process.executable.name", usedShell),
-			attribute.String("process.command", block.Command),
-			attribute.Int("process.pid", pid),
-		)
-
-		span.AddEvent("Finished executing command", createEventAttributes(nil, stdout, stderr)...)
+		return // Return from main to let the deferred function run
+	} else {
+		githubactions.Infof("Command executed successfully")
+		span.SetStatus(codes.Ok, "Command executed successfully") // Set span status to Ok
 	}
+
+	span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", params.Run)))
+
+	// Add process attributes to the span
+	span.SetAttributes(
+		attribute.String("process.executable.name", usedShell),
+		attribute.String("process.command", params.Run),
+		attribute.Int("process.pid", pid),
+	)
+
+	span.AddEvent("Finished executing command", createEventAttributes(nil, stdout, stderr)...)
 }
