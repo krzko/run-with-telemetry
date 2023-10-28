@@ -8,11 +8,6 @@ inputs:
     required: false
     default: ${{ github.token }}
     description: A token that can be used with the GitHub API.
-  headers:
-    required: false
-    description: >
-      Headers to attach to outgoing gRPC requests. Set via comma
-      separated values; header1=value1,header2=value2.
   is-root:
     required: false
     description: >
@@ -22,6 +17,11 @@ inputs:
     description: >
       A base endpoint URL for any signal type, with an optionally-specified
       port number.
+  otel-exporter-otlp-headers:
+    required: false
+    description: >
+      Headers to attach to outgoing the OTLP gRPC exporter. Set via comma
+      separated values; header1=value1,header2=value2.
   otel-resource-attributes:
     required: false
     description: >

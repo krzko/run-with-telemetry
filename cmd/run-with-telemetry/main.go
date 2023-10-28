@@ -30,13 +30,13 @@ var (
 )
 
 type InputParams struct {
-	GithubToken          string
-	OtelExporterEndpoint string
-	OtelResourceAttrs    map[string]string
-	OtelServiceName      string
-	Run                  string
-	Headers              map[string]string
-	StepName             string
+	GithubToken             string
+	OtelExporterEndpoint    string
+	OtelResourceAttrs       map[string]string
+	OtelServiceName         string
+	Run                     string
+	OtelExporterOtlpHeaders map[string]string
+	StepName                string
 }
 
 type TextMapCarrier map[string]string
@@ -69,7 +69,7 @@ func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr st
 	return baseAttributes
 }
 
-func executeCommand(shell string, command string, span trace.Span) (string, int, string, string, error) {
+func executeCommand(shell string, command string, span trace.Span, headers map[string]string) (string, int, string, string, error) {
 	var cmd *exec.Cmd
 	switch shell {
 	case "bash":
@@ -86,12 +86,23 @@ func executeCommand(shell string, command string, span trace.Span) (string, int,
 	sc := span.SpanContext()
 	traceparent := fmt.Sprintf("00-%s-%s-01", sc.TraceID().String(), sc.SpanID().String())
 
-	// Set environment variables for the command
+	otelExporterOtlpEndpoint := githubactions.GetInput("otel-exporter-otlp-endpoint")
+	otelServiceName := githubactions.GetInput("otel-service-name")
+	otelResourceAttributes := githubactions.GetInput("otel-resource-attributes")
+
+	headersStr := mapToCommaSeparatedString(headers)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("TRACEPARENT=%s", traceparent),
 		fmt.Sprintf("TRACEID=%s", sc.TraceID().String()),
 		fmt.Sprintf("SPANID=%s", sc.SpanID().String()),
+		fmt.Sprintf("OTEL_EXPORTER_OTLP_HEADERS=%s", headersStr),
+		fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", otelExporterOtlpEndpoint),
+		fmt.Sprintf("OTEL_SERVICE_NAME=%s", otelServiceName),
 	)
+
+	if otelResourceAttributes != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
+	}
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -226,7 +237,7 @@ func parseInputParams() InputParams {
 	}
 
 	headers := make(map[string]string)
-	hs := strings.Split(githubactions.GetInput("headers"), ",")
+	hs := strings.Split(githubactions.GetInput("otel-exporter-otlp-headers"), ",")
 	for _, header := range hs {
 		keyValue := strings.Split(header, "=")
 		if len(keyValue) == 2 {
@@ -237,14 +248,22 @@ func parseInputParams() InputParams {
 	}
 
 	return InputParams{
-		GithubToken:          githubactions.GetInput("github-token"),
-		OtelExporterEndpoint: githubactions.GetInput("otel-exporter-otlp-endpoint"),
-		OtelResourceAttrs:    resourceAttrs,
-		OtelServiceName:      githubactions.GetInput("otel-service-name"),
-		Run:                  githubactions.GetInput("run"),
-		Headers:              headers,
-		StepName:             githubactions.GetInput("step-name"),
+		GithubToken:             githubactions.GetInput("github-token"),
+		OtelExporterEndpoint:    githubactions.GetInput("otel-exporter-otlp-endpoint"),
+		OtelResourceAttrs:       resourceAttrs,
+		OtelServiceName:         githubactions.GetInput("otel-service-name"),
+		Run:                     githubactions.GetInput("run"),
+		OtelExporterOtlpHeaders: headers,
+		StepName:                githubactions.GetInput("step-name"),
 	}
+}
+
+func mapToCommaSeparatedString(m map[string]string) string {
+	var result []string
+	for k, v := range m {
+		result = append(result, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(result, ",")
 }
 
 func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
@@ -291,7 +310,7 @@ func main() {
 		githubactions.Fatalf("Failed to generate trace ID: %v", err)
 	}
 
-	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.Headers)
+	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.OtelExporterOtlpHeaders)
 	defer shutdown()
 
 	defer func() {
@@ -332,7 +351,8 @@ func main() {
 	shell := githubactions.GetInput("shell")
 	githubactions.Infof("Executing command: %s with shell: %s", params.Run, shell)
 
-	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run, span)
+	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run, span, params.OtelExporterOtlpHeaders)
+
 	if err != nil {
 		githubactions.Errorf("Failed to execute command: %v", err)
 		span.RecordError(err)
