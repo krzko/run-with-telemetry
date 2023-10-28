@@ -111,6 +111,14 @@ func executeCommand(shell string, command string, span trace.Span) (string, int,
 	stdoutBuf.ReadFrom(stdoutPipe)
 	stderrBuf.ReadFrom(stderrPipe)
 
+	// Print stdout and stderr to GitHub Actions console
+	if stdout := stdoutBuf.String(); len(stdout) > 0 {
+		githubactions.Infof("Standard Output: %s", stdout)
+	}
+	if stderr := stderrBuf.String(); len(stderr) > 0 {
+		githubactions.Errorf("Standard Error: %s", stderr)
+	}
+
 	if err := cmd.Wait(); err != nil {
 		return shell, cmd.Process.Pid, stdoutBuf.String(), stderrBuf.String(), err
 	}
