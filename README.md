@@ -1,10 +1,5 @@
 # run-with-telemetry
 
-GitHub Action `run` action with OpenTelemetry instrumenation 
-
-
-## Usage
-
 **WORK IN PROGRESS - DO NOT USE**
 
 A GitHub Action `run` command with OpenTelemetry instrumenation for distributed tracing.
@@ -36,7 +31,7 @@ jobs:
           otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
           otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
           otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
-          command: ls -la 
+          command: ls -la
 
       - name: Run with OTel (multi line)
         uses: krzko/run-with-telemetry@main
