@@ -360,6 +360,7 @@ func updateResourceAttributesFromFile(filePath string, params *InputParams) erro
 		return fmt.Errorf("error scanning file: %w", err)
 	}
 
+	githubactions.Infof("Successfully processed %d resource attributes from file: %s", len(params.OtelResourceAttrs), filePath)
 	return nil
 }
 
