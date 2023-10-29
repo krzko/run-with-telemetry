@@ -59,6 +59,17 @@ func (t TextMapCarrier) Keys() []string {
 	return keys
 }
 
+func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr string) []trace.EventOption {
+	if len(stdout) > 0 {
+		baseAttributes = append(baseAttributes, trace.WithAttributes(attribute.String("stdout", stdout)))
+	}
+	if len(stderr) > 0 {
+		baseAttributes = append(baseAttributes, trace.WithAttributes(attribute.String("stderr", stderr)))
+	}
+
+	return baseAttributes
+}
+
 func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.SpanID, success bool) {
 	conclusion := "success"
 	if !success {
@@ -71,17 +82,16 @@ func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.Spa
 	githubactions.Infof("Span ID: %s", spanID.String())
 	githubactions.Infof("Step Conclusion: %s", conclusion)
 	githubactions.EndGroup()
-}
 
-func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr string) []trace.EventOption {
-	if len(stdout) > 0 {
-		baseAttributes = append(baseAttributes, trace.WithAttributes(attribute.String("stdout", stdout)))
-	}
-	if len(stderr) > 0 {
-		baseAttributes = append(baseAttributes, trace.WithAttributes(attribute.String("stderr", stderr)))
-	}
+	markdownSummary := fmt.Sprintf(
+		"### Step Summary\n\n- Step Name: %s\n- Trace ID: %s\n- Span ID: %s\n- Step Conclusion: %s\n",
+		params.StepName,
+		traceID.String(),
+		spanID.String(),
+		conclusion,
+	)
 
-	return baseAttributes
+	githubactions.AddStepSummary(markdownSummary)
 }
 
 func executeCommand(shell string, command string, span trace.Span, headers map[string]string) (string, int, string, string, error) {
@@ -417,5 +427,4 @@ func main() {
 	)
 
 	span.AddEvent("Finished executing command", createEventAttributes(nil, stdout, stderr)...)
-	emitStepSummary(params, traceID, stepSpanID, success)
 }
