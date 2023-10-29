@@ -386,6 +386,11 @@ func main() {
 		githubactions.Fatalf("Failed to generate trace ID: %v", err)
 	}
 
+	err = updateResourceAttributesFromFile("otel_resource_attributes.txt", &params)
+	if err != nil {
+		githubactions.Fatalf("Failed to update resource attributes from file: %v", err)
+	}
+
 	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.OtelExporterOtlpHeaders)
 	defer shutdown()
 
@@ -460,11 +465,6 @@ func main() {
 		githubactions.Infof("Command executed successfully")
 		span.SetStatus(codes.Ok, "Command executed successfully")
 		success = true
-	}
-
-	err = updateResourceAttributesFromFile("otel_resource_attributes.txt", &params)
-	if err != nil {
-		githubactions.Fatalf("Failed to update resource attributes from file: %v", err)
 	}
 
 	span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", params.Run)))
