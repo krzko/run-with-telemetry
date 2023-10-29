@@ -77,6 +77,14 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
 	case "pwsh":
 		cmd = exec.Command("pwsh", "-command", command)
+	case "python":
+		cmd = exec.Command("python", "-c", command)
+	case "sh":
+		cmd = exec.Command("sh", "-e", "-c", command)
+	case "cmd":
+		cmd = exec.Command("cmd", "/D", "/E:ON", "/V:OFF", "/S", "/C", command)
+	case "powershell":
+		cmd = exec.Command("powershell", "-command", command)
 	default:
 		shell = "bash"
 		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
