@@ -2,8 +2,6 @@ const childProcess = require('child_process')
 const os = require('os')
 const process = require('process')
 
-// const VERSION = '8c304567843d8085198052b5fc103d33d1825a8e'
-
 function chooseBinary() {
     const platform = os.platform()
     const arch = os.arch()
@@ -24,7 +22,7 @@ function chooseBinary() {
         return `bin/run-with-telemetry-windows-amd64.exe`
     }
     if (platform === 'win32' && arch === 'arm64') {
-        return `bin/run-with-telemetry-windows-amd64_v4.exe`
+        return `bin/run-with-telemetry-windows-arm64.exe`
     }
 
     console.error(`Unsupported platform (${platform}) and architecture (${arch})`)
