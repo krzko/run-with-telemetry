@@ -417,4 +417,5 @@ func main() {
 	)
 
 	span.AddEvent("Finished executing command", createEventAttributes(nil, stdout, stderr)...)
+	emitStepSummary(params, traceID, stepSpanID, success)
 }
