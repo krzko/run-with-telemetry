@@ -59,6 +59,20 @@ func (t TextMapCarrier) Keys() []string {
 	return keys
 }
 
+func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.SpanID, success bool) {
+	conclusion := "success"
+	if !success {
+		conclusion = "failure"
+	}
+
+	githubactions.Group("Step Summary")
+	githubactions.Infof("Step Name: %s", params.StepName)
+	githubactions.Infof("Trace ID: %s", traceID.String())
+	githubactions.Infof("Span ID: %s", spanID.String())
+	githubactions.Infof("Step Conclusion: %s", conclusion)
+	githubactions.EndGroup()
+}
+
 func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr string) []trace.EventOption {
 	if len(stdout) > 0 {
 		baseAttributes = append(baseAttributes, trace.WithAttributes(attribute.String("stdout", stdout)))
@@ -296,6 +310,7 @@ func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
 
 func main() {
 	var exitCode int
+	var success bool
 
 	params := parseInputParams()
 
@@ -344,6 +359,14 @@ func main() {
 
 	tracer := otel.Tracer(actionName)
 
+	defer func() {
+		emitStepSummary(params, traceID, stepSpanID, success)
+		shutdown()
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
 	var spanName string
 	if strings.Count(params.Run, "\n") > 0 {
 		spanName = "Executing multiple commands"
@@ -364,6 +387,7 @@ func main() {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		exitCode = 1
+		success = false
 
 		// Prepare base attributes for span event
 		baseAttributes := []trace.EventOption{
@@ -380,6 +404,7 @@ func main() {
 	} else {
 		githubactions.Infof("Command executed successfully")
 		span.SetStatus(codes.Ok, "Command executed successfully")
+		success = true
 	}
 
 	span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", params.Run)))
