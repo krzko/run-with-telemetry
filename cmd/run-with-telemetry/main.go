@@ -71,9 +71,9 @@ func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr st
 }
 
 func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.SpanID, success bool) {
-	conclusion := "success"
+	conclusion := "✅ success"
 	if !success {
-		conclusion = "failure"
+		conclusion = "❌ failure"
 	}
 
 	githubactions.Group("Step Summary")
@@ -84,7 +84,8 @@ func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.Spa
 	githubactions.EndGroup()
 
 	markdownSummary := fmt.Sprintf(
-		"### Step Summary\n\n- Step Name: %s\n- Trace ID: %s\n- Span ID: %s\n- Step Conclusion: %s\n",
+		"### 📋 Step Summary (%s)\n\n- Step Name: %s\n- Trace ID: %s\n- Span ID: %s\n- Step Conclusion: %s\n",
+		actionName,
 		params.StepName,
 		traceID.String(),
 		spanID.String(),
