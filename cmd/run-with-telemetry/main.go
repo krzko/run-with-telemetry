@@ -299,6 +299,8 @@ func main() {
 
 	params := parseInputParams()
 
+	githubactions.Infof("Running step: %s", params.StepName)
+
 	runID, err := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
 	if err != nil {
 		githubactions.Fatalf("Failed to parse GITHUB_RUN_ID: %v", err)
