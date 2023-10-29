@@ -23,6 +23,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const actionName = "run-with-telemetry"
+
 var (
 	BUILD_VERSION string
 	BUILD_DATE    string
@@ -58,7 +60,6 @@ func (t TextMapCarrier) Keys() []string {
 }
 
 func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr string) []trace.EventOption {
-	// Conditionally include stdout and stderr if they have content
 	if len(stdout) > 0 {
 		baseAttributes = append(baseAttributes, trace.WithAttributes(attribute.String("stdout", stdout)))
 	}
@@ -76,7 +77,6 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
 	case "pwsh":
 		cmd = exec.Command("pwsh", "-command", command)
-	// ... rest of your cases ...
 	default:
 		shell = "bash"
 		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
@@ -219,11 +219,7 @@ func initTracer(endpoint string, serviceName string, attrs map[string]string, he
 }
 
 func parseInputParams() InputParams {
-	githubactions.Infof("Build Version: %s", BUILD_VERSION)
-	githubactions.Infof("Build Date: %s", BUILD_DATE)
-	githubactions.Infof("Commit ID: %s", COMMIT_ID)
-
-	githubactions.Infof("Parsing input parameters...")
+	githubactions.Infof("Starting %s version: %s (%s) commit: %s", actionName, BUILD_VERSION, BUILD_DATE, COMMIT_ID)
 
 	resourceAttrs := make(map[string]string)
 	attrs := strings.Split(githubactions.GetInput("otel-resource-attributes"), ",")
@@ -291,7 +287,7 @@ func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
 }
 
 func main() {
-	var exitCode int // 0 indicates success, non-zero indicates error
+	var exitCode int
 
 	params := parseInputParams()
 
@@ -314,13 +310,13 @@ func main() {
 	defer shutdown()
 
 	defer func() {
-		shutdown() // This is the function returned by initTracer
+		shutdown()
 		if exitCode != 0 {
-			os.Exit(exitCode) // Exit with the recorded non-zero exit code, if any
+			os.Exit(exitCode)
 		}
 	}()
 
-	stepSpanID, err := generateStepSpanID(runID, runAttempt, job, params.StepName) // Assuming params.StepName holds the step name
+	stepSpanID, err := generateStepSpanID(runID, runAttempt, job, params.StepName)
 	if err != nil {
 		githubactions.Fatalf("Failed to generate step span ID: %v", err)
 	}
@@ -336,7 +332,7 @@ func main() {
 		trace.NewSpanContext(spanContextConfig),
 	)
 
-	tracer := otel.Tracer("run-with-telemetry")
+	tracer := otel.Tracer(actionName)
 
 	var spanName string
 	if strings.Count(params.Run, "\n") > 0 {
@@ -356,8 +352,8 @@ func main() {
 	if err != nil {
 		githubactions.Errorf("Failed to execute command: %v", err)
 		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error()) // Set span status to Error
-		exitCode = 1                             // Record a non-zero exit code
+		span.SetStatus(codes.Error, err.Error())
+		exitCode = 1
 
 		// Prepare base attributes for span event
 		baseAttributes := []trace.EventOption{
@@ -370,10 +366,10 @@ func main() {
 		// Create a new span event to record the exception along with stdout and stderr
 		span.AddEvent("Standard error", createEventAttributes(baseAttributes, stdout, stderr)...)
 
-		return // Return from main to let the deferred function run
+		return
 	} else {
 		githubactions.Infof("Command executed successfully")
-		span.SetStatus(codes.Ok, "Command executed successfully") // Set span status to Ok
+		span.SetStatus(codes.Ok, "Command executed successfully")
 	}
 
 	span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", params.Run)))
