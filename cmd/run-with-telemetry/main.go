@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -319,6 +320,52 @@ func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
 	return tid, sid, nil
 }
 
+func updateResourceAttributesFromFile(filePath string, params *InputParams) (bool, error) {
+	githubactions.Infof("Attempting to read file: %s", filePath)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("error checking file existence: %w", err)
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false, fmt.Errorf("error opening file: %w", err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			githubactions.Warningf("error closing file: %v", closeErr)
+		}
+	}()
+
+	scanner := bufio.NewScanner(file)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Text()
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			githubactions.Warningf("malformed line %d: %s", lineNumber, line)
+			continue // Skip this line but keep processing the rest of the file
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			githubactions.Warningf("empty key on line %d: %s", lineNumber, line)
+			continue // Skip this line but keep processing the rest of the file
+		}
+		params.OtelResourceAttrs[key] = value
+	}
+
+	if err := scanner.Err(); err != nil {
+		githubactions.Errorf("Error scanning file: %v", err)
+		return false, fmt.Errorf("error scanning file: %w", err)
+	}
+
+	githubactions.Infof("Successfully processed %d resource attributes from file: %s", len(params.OtelResourceAttrs), filePath)
+	return true, nil
+}
+
 func main() {
 	var exitCode int
 	var success bool
@@ -416,6 +463,21 @@ func main() {
 		githubactions.Infof("Command executed successfully")
 		span.SetStatus(codes.Ok, "Command executed successfully")
 		success = true
+	}
+
+	wasUpdated, err := updateResourceAttributesFromFile("otel_resource_attributes.txt", &params)
+	if err != nil {
+		githubactions.Fatalf("Failed to update resource attributes from file: %v", err)
+	}
+
+	if wasUpdated {
+		for key, value := range params.OtelResourceAttrs {
+			span.SetAttributes(attribute.String(key, value))
+		}
+	}
+
+	for key, value := range params.OtelResourceAttrs {
+		span.SetAttributes(attribute.String(key, value))
 	}
 
 	span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", params.Run)))
