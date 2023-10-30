@@ -450,19 +450,19 @@ func main() {
 			} else {
 				githubactions.Warningf("Invalid TRACEPARENT format: %s", traceparent)
 			}
+		} else {
+			spanContextConfig := trace.SpanContextConfig{
+				TraceID:    traceID,
+				SpanID:     stepSpanID,
+				TraceFlags: trace.FlagsSampled,
+			}
+
+			ctx = trace.ContextWithRemoteSpanContext(
+				context.Background(),
+				trace.NewSpanContext(spanContextConfig),
+			)
 		}
 	}
-
-	spanContextConfig := trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     stepSpanID,
-		TraceFlags: trace.FlagsSampled,
-	}
-
-	ctx = trace.ContextWithRemoteSpanContext(
-		context.Background(),
-		trace.NewSpanContext(spanContextConfig),
-	)
 
 	var spanName string
 	if strings.Count(params.Run, "\n") > 0 {
