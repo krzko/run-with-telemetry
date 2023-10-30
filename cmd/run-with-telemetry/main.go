@@ -186,8 +186,7 @@ func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
 	return traceID, nil
 }
 
-func generateRootSpanID(runID int64, runAttempt int, jobName, stepName string) (trace.SpanID, error) {
-	input := fmt.Sprintf("%d%d%s", runID, runAttempt, jobName)
+func generateSpanID(input string) (trace.SpanID, error) {
 	hash := sha256.Sum256([]byte(input))
 	spanIDHex := hex.EncodeToString(hash[:])
 
@@ -279,6 +278,9 @@ func parseInputParams() InputParams {
 		}
 	}
 
+	isRootStr := githubactions.GetInput("is-root")
+	isRoot := isRootStr == "true"
+
 	return InputParams{
 		GithubToken:             githubactions.GetInput("github-token"),
 		OtelExporterEndpoint:    githubactions.GetInput("otel-exporter-otlp-endpoint"),
@@ -287,7 +289,7 @@ func parseInputParams() InputParams {
 		Run:                     githubactions.GetInput("run"),
 		OtelExporterOtlpHeaders: headers,
 		StepName:                githubactions.GetInput("step-name"),
-		IsRoot:                  githubactions.GetInput("is-root") == "true",
+		IsRoot:                  isRoot,
 	}
 }
 
@@ -299,29 +301,29 @@ func mapToCommaSeparatedString(m map[string]string) string {
 	return strings.Join(result, ",")
 }
 
-// func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
-// 	parts := strings.Split(traceparent, "-")
-// 	if len(parts) < 3 {
-// 		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid traceparent: %s", traceparent)
-// 	}
+func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
+	parts := strings.Split(traceparent, "-")
+	if len(parts) < 3 {
+		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid traceparent: %s", traceparent)
+	}
 
-// 	traceID, err := hex.DecodeString(parts[1])
-// 	if err != nil {
-// 		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid TraceID: %w", err)
-// 	}
+	traceID, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid TraceID: %w", err)
+	}
 
-// 	spanID, err := hex.DecodeString(parts[2])
-// 	if err != nil {
-// 		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid SpanID: %w", err)
-// 	}
+	spanID, err := hex.DecodeString(parts[2])
+	if err != nil {
+		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid SpanID: %w", err)
+	}
 
-// 	var tid trace.TraceID
-// 	var sid trace.SpanID
-// 	copy(tid[:], traceID)
-// 	copy(sid[:], spanID)
+	var tid trace.TraceID
+	var sid trace.SpanID
+	copy(tid[:], traceID)
+	copy(sid[:], spanID)
 
-// 	return tid, sid, nil
-// }
+	return tid, sid, nil
+}
 
 func updateResourceAttributesFromFile(filePath string, params *InputParams) (bool, error) {
 	githubactions.Infof("Attempting to read file: %s", filePath)
@@ -375,6 +377,8 @@ func updateResourceAttributesFromFile(filePath string, params *InputParams) (boo
 func main() {
 	var exitCode int
 	var success bool
+	var rootSpan trace.Span
+	var ctx context.Context
 
 	params := parseInputParams()
 
@@ -398,36 +402,13 @@ func main() {
 	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.OtelExporterOtlpHeaders)
 	defer shutdown()
 
-	defer func() {
-		shutdown()
-		if exitCode != 0 {
-			os.Exit(exitCode)
-		}
-	}()
-
-	isRoot := params.IsRoot
-	var spanID trace.SpanID
-
-	if isRoot {
-		spanID, err = generateRootSpanID(runID, runAttempt, job, params.StepName)
-		if err != nil {
-			githubactions.Fatalf("Failed to generate root span ID: %v", err)
-		}
-	} else {
-		spanID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
-		if err != nil {
-			githubactions.Fatalf("Failed to generate step span ID: %v", err)
-		}
-	}
-
-	spanContextConfig := trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: trace.FlagsSampled,
-	}
+	var stepSpanID trace.SpanID
 
 	defer func() {
-		emitStepSummary(params, traceID, spanID, success)
+		if rootSpan != nil {
+			rootSpan.End()
+		}
+		emitStepSummary(params, traceID, stepSpanID, success)
 		shutdown()
 		if exitCode != 0 {
 			os.Exit(exitCode)
@@ -436,27 +417,44 @@ func main() {
 
 	tracer := otel.Tracer(actionName)
 
-	var span trace.Span
-	var spanName string
+	if params.IsRoot {
+		githubactions.Infof("is-root is set to true")
+		rootSpanName := job
+		ctx, rootSpan = tracer.Start(
+			context.Background(),
+			rootSpanName,
+			trace.WithNewRoot(),
+			trace.WithSpanKind(trace.SpanKindServer),
+		)
+	} else {
+		githubactions.Infof("is-root is not set to true")
+		ctx = context.Background()
+	}
 
+	stepSpanID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
+	if err != nil {
+		githubactions.Fatalf("Failed to generate step span ID: %v", err)
+	}
+
+	spanContextConfig := trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     stepSpanID,
+		TraceFlags: trace.FlagsSampled,
+	}
+
+	ctx = trace.ContextWithRemoteSpanContext(
+		context.Background(),
+		trace.NewSpanContext(spanContextConfig),
+	)
+
+	var spanName string
 	if strings.Count(params.Run, "\n") > 0 {
 		spanName = "Executing multiple commands"
 	} else {
 		binaryName := strings.Fields(params.Run)[0] // Assumes the binary name has no spaces
 		spanName = fmt.Sprintf("Executing %s", binaryName)
 	}
-
-	if isRoot {
-		// Start a new root span
-		_, span = tracer.Start(context.Background(), spanName)
-	} else {
-		ctx := trace.ContextWithRemoteSpanContext(
-			context.Background(),
-			trace.NewSpanContext(spanContextConfig),
-		)
-		_, span = tracer.Start(ctx, spanName)
-	}
-
+	_, span := tracer.Start(ctx, spanName)
 	defer span.End()
 
 	shell := githubactions.GetInput("shell")
