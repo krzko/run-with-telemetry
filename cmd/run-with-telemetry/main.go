@@ -378,6 +378,7 @@ func main() {
 	var exitCode int
 	var success bool
 	var rootSpan trace.Span
+	var stepSpanID trace.SpanID
 	var ctx context.Context
 
 	params := parseInputParams()
@@ -399,10 +400,13 @@ func main() {
 		githubactions.Fatalf("Failed to generate trace ID: %v", err)
 	}
 
+	stepSpanID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
+	if err != nil {
+		githubactions.Fatalf("Failed to generate step span ID: %v", err)
+	}
+
 	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.OtelExporterOtlpHeaders)
 	defer shutdown()
-
-	var stepSpanID trace.SpanID
 
 	defer func() {
 		if rootSpan != nil {
@@ -420,8 +424,24 @@ func main() {
 	if params.IsRoot {
 		githubactions.Infof("is-root is set to true")
 		rootSpanName := job
-		ctx, rootSpan = tracer.Start(
+
+		spanIDStr := fmt.Sprintf("%d%d%s", runID, runAttempt, rootSpanName)
+		spanID, _ := generateSpanID(spanIDStr)
+
+		spanContextConfig := trace.SpanContextConfig{
+			TraceID:    traceID,
+			SpanID:     spanID,
+			TraceFlags: trace.FlagsSampled,
+		}
+
+		// Create a new context with the specified SpanContext
+		ctx = trace.ContextWithRemoteSpanContext(
 			context.Background(),
+			trace.NewSpanContext(spanContextConfig),
+		)
+
+		ctx, rootSpan = tracer.Start(
+			ctx, // Use the new context here
 			rootSpanName,
 			trace.WithNewRoot(),
 			trace.WithSpanKind(trace.SpanKindServer),
@@ -431,11 +451,6 @@ func main() {
 	} else {
 		githubactions.Infof("is-root is not set to true")
 		ctx = context.Background()
-	}
-
-	stepSpanID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
-	if err != nil {
-		githubactions.Fatalf("Failed to generate step span ID: %v", err)
 	}
 
 	spanContextConfig := trace.SpanContextConfig{
