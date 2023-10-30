@@ -443,7 +443,7 @@ func main() {
 		ctx, rootSpan = tracer.Start(
 			ctx, // Use the new context here
 			rootSpanName,
-			trace.WithNewRoot(),
+			trace.WithNewRoot(), // This option ensures the span has no parent
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
 		// End the root span immediately after it's created
