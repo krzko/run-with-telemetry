@@ -426,6 +426,8 @@ func main() {
 			trace.WithNewRoot(),
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
+		// End the root span immediately after it's created
+		rootSpan.End()
 	} else {
 		githubactions.Infof("is-root is not set to true")
 		ctx = context.Background()
@@ -512,4 +514,10 @@ func main() {
 	)
 
 	span.AddEvent("Finished executing command", createEventAttributes(nil, stdout, stderr)...)
+
+	defer func() {
+		if rootSpan != nil {
+			rootSpan.End()
+		}
+	}()
 }
