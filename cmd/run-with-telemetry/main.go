@@ -321,6 +321,7 @@ func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
 }
 
 func updateResourceAttributesFromFile(filePath string, params *InputParams) error {
+	githubactions.Infof("Attempting to read file: %s", filePath)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -357,6 +358,7 @@ func updateResourceAttributesFromFile(filePath string, params *InputParams) erro
 	}
 
 	if err := scanner.Err(); err != nil {
+		githubactions.Errorf("Error scanning file: %v", err)
 		return fmt.Errorf("error scanning file: %w", err)
 	}
 
@@ -385,11 +387,6 @@ func main() {
 	traceID, err := generateTraceID(runID, runAttempt)
 	if err != nil {
 		githubactions.Fatalf("Failed to generate trace ID: %v", err)
-	}
-
-	err = updateResourceAttributesFromFile("otel_resource_attributes.txt", &params)
-	if err != nil {
-		githubactions.Fatalf("Failed to update resource attributes from file: %v", err)
 	}
 
 	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.OtelExporterOtlpHeaders)
@@ -466,6 +463,11 @@ func main() {
 		githubactions.Infof("Command executed successfully")
 		span.SetStatus(codes.Ok, "Command executed successfully")
 		success = true
+	}
+
+	err = updateResourceAttributesFromFile("otel_resource_attributes.txt", &params)
+	if err != nil {
+		githubactions.Fatalf("Failed to update resource attributes from file: %v", err)
 	}
 
 	span.AddEvent("Start executing command", trace.WithAttributes(attribute.String("command", params.Run)))
