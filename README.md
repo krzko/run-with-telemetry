@@ -36,6 +36,47 @@ The GitHub Actions Event Receiver ensures data integrity by validating the paylo
 
 Additionally, the **Run with Telemetry** action also supports stand-alone mode when using the `is-root` input parameter, providing flexibility in setup based on your observability requirements.
 
+## Usage
+
+Define a step in your GitHub Actions workflow YAML file and specify the necessary input parameters to use the **Run with Telemetry** action:
+
+```yaml
+name: Build
+
+on:
+  workflow_dispatch
+
+env:
+  OTEL_EXPORTER_OTLP_ENDPOINT: https://otelcol:4317
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environent=dev,service.version=1.0.0
+  OTEL_SERVICE_NAME: o11y-tools
+
+jobs:
+  build-stuff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run a single-line command with telemetry
+        uses: krzko/run-with-telemetry@main
+        with:
+          otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
+          otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
+          step-name: Run a single-line command with telemetry
+          command: make build
+
+      - name: Run multi-line commands with telemetry
+        uses: krzko/run-with-telemetry@main
+        with:
+          otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
+          otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
+          step-name: Run multi-line commands with telemetry
+          command: |
+            cd src
+            make build
+```
 ## Environment Variables Injection
 
 The action automatically injects certain environment variables into the shell where the command is being executed. These variables can be utilised by other observability tools to correlate traces across different systems and services. Here are the injected variables:
@@ -80,45 +121,3 @@ This example illustrates how the injected environment variables can be utilised 
 ```
 
 The `otel-cli exec` command captures the `TRACEPARENT` value without requiring explicit setting, enabling seamless additional telemetry emission within the multi-line command. This extended telemetry, aligned with the automatically generated traces from the `run-with-telemetry` action, enriches the observability of the workflow, facilitating better insights into the execution of individual steps and commands.
-
-## Usage
-
-Define a step in your GitHub Actions workflow YAML file and specify the necessary input parameters to use the **Run with Telemetry** action:
-
-```yaml
-name: Build
-
-on:
-  workflow_dispatch
-
-env:
-  OTEL_EXPORTER_OTLP_ENDPOINT: https://otelcol:4317
-  OTEL_RESOURCE_ATTRIBUTES: deployment.environent=dev,service.version=1.0.0
-  OTEL_SERVICE_NAME: o11y-tools
-
-jobs:
-  build-stuff:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Run a single-line command with telemetry
-        uses: krzko/run-with-telemetry@main
-        with:
-          otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
-          otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
-          step-name: Run a single-line command with telemetry
-          command: make build
-
-      - name: Run multi-line commands with telemetry
-        uses: krzko/run-with-telemetry@main
-        with:
-          otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
-          otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
-          step-name: Run multi-line commands with telemetry
-          command: |
-            cd src
-            make build
-```
