@@ -426,24 +426,6 @@ func main() {
 		TraceFlags: trace.FlagsSampled,
 	}
 
-	ctx := context.Background()
-
-	if isRoot {
-		// Create a new root span with the generated trace ID and span ID
-		ctx = trace.ContextWithRemoteSpanContext(
-			ctx,
-			trace.NewSpanContext(spanContextConfig),
-		)
-	} else {
-		// Use the existing context if this is not a root span
-		ctx = trace.ContextWithRemoteSpanContext(
-			ctx,
-			trace.NewSpanContext(spanContextConfig),
-		)
-	}
-
-	tracer := otel.Tracer(actionName)
-
 	defer func() {
 		emitStepSummary(params, traceID, spanID, success)
 		shutdown()
@@ -452,7 +434,11 @@ func main() {
 		}
 	}()
 
+	tracer := otel.Tracer(actionName)
+
+	var span trace.Span
 	var spanName string
+
 	if strings.Count(params.Run, "\n") > 0 {
 		spanName = "Executing multiple commands"
 	} else {
@@ -460,18 +446,15 @@ func main() {
 		spanName = fmt.Sprintf("Executing %s", binaryName)
 	}
 
-	var span trace.Span
 	if isRoot {
-		_, span = tracer.Start(
-			ctx,
-			spanName,
-			trace.WithNewRoot(), // This option creates a new root span
-		)
+		// Start a new root span
+		_, span = tracer.Start(context.Background(), spanName)
 	} else {
-		_, span = tracer.Start(
-			ctx,
-			spanName,
+		ctx := trace.ContextWithRemoteSpanContext(
+			context.Background(),
+			trace.NewSpanContext(spanContextConfig),
 		)
+		_, span = tracer.Start(ctx, spanName)
 	}
 
 	defer span.End()
