@@ -70,7 +70,7 @@ jobs:
           otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
           otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
           step-name: Run a single-line command with telemetry
-          command: make build
+          run: make build
 
       - name: Run multi-line commands with telemetry
         uses: krzko/run-with-telemetry@main
@@ -79,7 +79,7 @@ jobs:
           otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
           otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
           step-name: Run multi-line commands with telemetry
-          command: |
+          run: |
             cd src
             make build
 ```
