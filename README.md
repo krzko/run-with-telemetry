@@ -36,6 +36,51 @@ The GitHub Actions Event Receiver ensures data integrity by validating the paylo
 
 Additionally, the **Run with Telemetry** action also supports stand-alone mode when using the `is-root` input parameter, providing flexibility in setup based on your observability requirements.
 
+## Environment Variables Injection
+
+The action automatically injects certain environment variables into the shell where the command is being executed. These variables can be utilised by other observability tools to correlate traces across different systems and services. Here are the injected variables:
+
+* **`OTEL_*` Variables:** All `OTEL_*` environment variables specified in the workflow are injected into the shell. These variables are used to configure the OpenTelemetry instrumentation and exporting behavior.
+
+* **`TRACEPARENT`:** This variable contains the trace context of the current span, following the [W3C Trace Context specification](https://www.w3.org/TR/trace-context/). It's a crucial variable for distributed tracing as it enables trace propagation across different systems.
+
+```
+TRACEPARENT=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+```
+
+* **`TRACEID:`** This variable holds the trace identifier, a 32-character hexadecimal string which is unique for each trace.
+
+```
+TRACEID=0af7651916cd43dd8448eb211c80319c
+```
+
+* **`SPANID`:** This variable holds the span identifier, a 16-character hexadecimal string which is unique for each span within a trace.
+
+```
+SPANID=b7ad6b7169203331
+```
+
+### Example Usage
+
+This example illustrates how the injected environment variables can be utilised within your workflow, particularly with [otel-cli](https://github.com/equinix-labs/otel-cli), to emit additional telemetry:
+
+```yaml
+- name: Turtles with otel-cli
+  uses: krzko/run-with-telemetry@main
+  with:
+    otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
+    otel-exporter-otlp-headers: ${{ env.OTEL_EXPORTER_OTLP_HEADERS }}
+    otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
+    otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
+    step-name: Turtles with otel-cli
+    run: |
+      pwd
+      echo $TRACEPARENT
+      otel-cli exec --name "curl httpbin" curl "https://httpbin.org/get"
+```
+
+The `otel-cli exec` command captures the `TRACEPARENT` value without requiring explicit setting, enabling seamless additional telemetry emission within the multi-line command. This extended telemetry, aligned with the automatically generated traces from the `run-with-telemetry` action, enriches the observability of the workflow, facilitating better insights into the execution of individual steps and commands.
+
 ## Usage
 
 Define a step in your GitHub Actions workflow YAML file and specify the necessary input parameters to use the **Run with Telemetry** action:
