@@ -425,7 +425,7 @@ func main() {
 		githubactions.Infof("is-root is set to true")
 		rootSpanName := job
 
-		spanIDStr := fmt.Sprintf("%d%d%s", runID, runAttempt, rootSpanName)
+		spanIDStr := fmt.Sprintf("%d%d%ss", runID, runAttempt, rootSpanName)
 		spanID, _ := generateSpanID(spanIDStr)
 
 		spanContextConfig := trace.SpanContextConfig{
