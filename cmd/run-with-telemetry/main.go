@@ -424,9 +424,8 @@ func main() {
 
 	if params.IsRoot {
 		githubactions.Infof("is-root is set to true")
-		rootSpanName := job
 
-		jobSpanID, _ := generateJobSpanID(runID, runAttempt, rootSpanName)
+		jobSpanID, _ := generateJobSpanID(runID, runAttempt, job)
 
 		spanContextConfig := trace.SpanContextConfig{
 			TraceID:    traceID,
@@ -435,15 +434,15 @@ func main() {
 		}
 
 		// Create a new context with the specified SpanContext
-		ctx = trace.ContextWithRemoteSpanContext(
+		ctx = trace.ContextWithSpanContext(
 			context.Background(),
 			trace.NewSpanContext(spanContextConfig),
 		)
 
 		_, rootSpan = tracer.Start(
 			ctx,
-			rootSpanName,
-			trace.WithNewRoot(), // This option ensures the span has no parent
+			job,
+			trace.WithNewRoot(),
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
 		// End the root span immediately after it's created
