@@ -1,7 +1,12 @@
 name: Run with Telemetry
 description: >
   Execute a command on the runner and export the associated OpenTelemetry
-  trace.
+  trace. This action is cross-platform compatible across Linux, macOS, and Windows.
+  It is designed to work optimally with the OpenTelemetry Collector,
+  GitHub Actions Event Receiver, aligning the telemetry within steps to what
+  the receiver emits. This action also injects OTEL-* environment variables
+  into the shell, enabling further configuration of the OpenTelemetry
+  instrumentation.
 author: Kristof Kowalski
 inputs:
   github-token:
