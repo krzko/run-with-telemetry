@@ -287,7 +287,7 @@ func parseInputParams() InputParams {
 		Run:                     githubactions.GetInput("run"),
 		OtelExporterOtlpHeaders: headers,
 		StepName:                githubactions.GetInput("step-name"),
-		IsRoot:                  githubactions.GetInput("is-root") == "false",
+		IsRoot:                  githubactions.GetInput("is-root") == "true",
 	}
 }
 
@@ -426,10 +426,21 @@ func main() {
 		TraceFlags: trace.FlagsSampled,
 	}
 
-	ctx := trace.ContextWithRemoteSpanContext(
-		context.Background(),
-		trace.NewSpanContext(spanContextConfig),
-	)
+	ctx := context.Background()
+
+	if isRoot {
+		// Create a new root span with the generated trace ID and span ID
+		ctx = trace.ContextWithRemoteSpanContext(
+			ctx,
+			trace.NewSpanContext(spanContextConfig),
+		)
+	} else {
+		// Use the existing context if this is not a root span
+		ctx = trace.ContextWithRemoteSpanContext(
+			ctx,
+			trace.NewSpanContext(spanContextConfig),
+		)
+	}
 
 	tracer := otel.Tracer(actionName)
 
@@ -448,7 +459,21 @@ func main() {
 		binaryName := strings.Fields(params.Run)[0] // Assumes the binary name has no spaces
 		spanName = fmt.Sprintf("Executing %s", binaryName)
 	}
-	_, span := tracer.Start(ctx, spanName)
+
+	var span trace.Span
+	if isRoot {
+		_, span = tracer.Start(
+			ctx,
+			spanName,
+			trace.WithNewRoot(), // This option creates a new root span
+		)
+	} else {
+		_, span = tracer.Start(
+			ctx,
+			spanName,
+		)
+	}
+
 	defer span.End()
 
 	shell := githubactions.GetInput("shell")
