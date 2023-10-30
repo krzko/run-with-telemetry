@@ -36,6 +36,12 @@ The GitHub Actions Event Receiver ensures data integrity by validating the paylo
 
 Additionally, the **Run with Telemetry** action also supports stand-alone mode when using the `is-root` input parameter, providing flexibility in setup based on your observability requirements.
 
+<img
+  src="/assets/images/trace-with-ghaer.png"
+  alt="Trace with Github Actions Event Receiver"
+  title="Trace with Github Actions Event Receiver"
+  style="display: inline-block; margin: 0 auto; max-width: 300px">
+
 ## Usage
 
 Define a step in your GitHub Actions workflow YAML file and specify the necessary input parameters to use the **Run with Telemetry** action:
