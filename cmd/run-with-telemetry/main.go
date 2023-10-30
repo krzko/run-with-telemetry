@@ -423,8 +423,34 @@ func main() {
 		)
 		// End the root span immediately after it's created
 		rootSpan.End()
+
+		// Set TRACEPARENT environment variable for subsequent steps
+		traceparent := fmt.Sprintf("00-%s-%s-01", traceID, jobSpanID)
+		githubactions.SetEnv("TRACEPARENT", traceparent)
+
 	} else {
 		githubactions.Infof("is-root is not set to true")
+
+		// Check for TRACEPARENT environment variable
+		traceparent := githubactions.GetInput("TRACEPARENT")
+		if traceparent != "" {
+			parts := strings.Split(traceparent, "-")
+			if len(parts) == 4 {
+				parentSpanID := parts[2]
+				psID, _ := trace.SpanIDFromHex(parentSpanID)
+				spanContextConfig := trace.SpanContextConfig{
+					TraceID:    traceID,
+					SpanID:     psID,
+					TraceFlags: trace.FlagsSampled,
+				}
+				_ = trace.ContextWithRemoteSpanContext(
+					context.Background(),
+					trace.NewSpanContext(spanContextConfig),
+				)
+			} else {
+				githubactions.Warningf("Invalid TRACEPARENT format: %s", traceparent)
+			}
+		}
 	}
 
 	spanContextConfig := trace.SpanContextConfig{
