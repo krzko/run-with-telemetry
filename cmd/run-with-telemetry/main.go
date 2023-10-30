@@ -302,30 +302,6 @@ func mapToCommaSeparatedString(m map[string]string) string {
 	return strings.Join(result, ",")
 }
 
-func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
-	parts := strings.Split(traceparent, "-")
-	if len(parts) < 3 {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid traceparent: %s", traceparent)
-	}
-
-	traceID, err := hex.DecodeString(parts[1])
-	if err != nil {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid TraceID: %w", err)
-	}
-
-	spanID, err := hex.DecodeString(parts[2])
-	if err != nil {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid SpanID: %w", err)
-	}
-
-	var tid trace.TraceID
-	var sid trace.SpanID
-	copy(tid[:], traceID)
-	copy(sid[:], spanID)
-
-	return tid, sid, nil
-}
-
 func updateResourceAttributesFromFile(filePath string, params *InputParams) (bool, error) {
 	githubactions.Infof("Attempting to read file: %s", filePath)
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -442,7 +418,7 @@ func main() {
 		_, rootSpan = tracer.Start(
 			ctx,
 			job,
-			trace.WithNewRoot(),
+			// trace.WithNewRoot(),
 			trace.WithSpanKind(trace.SpanKindServer),
 		)
 		// End the root span immediately after it's created
