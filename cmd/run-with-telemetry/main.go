@@ -186,7 +186,8 @@ func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
 	return traceID, nil
 }
 
-func generateSpanID(input string) (trace.SpanID, error) {
+func generateJobSpanID(runID int64, runAttempt int, job string) (trace.SpanID, error) {
+	input := fmt.Sprintf("%d%d%s", runID, runAttempt, job)
 	hash := sha256.Sum256([]byte(input))
 	spanIDHex := hex.EncodeToString(hash[:])
 
@@ -425,12 +426,11 @@ func main() {
 		githubactions.Infof("is-root is set to true")
 		rootSpanName := job
 
-		spanIDStr := fmt.Sprintf("%d%d%ss", runID, runAttempt, rootSpanName)
-		spanID, _ := generateSpanID(spanIDStr)
+		jobSpanID, _ := generateJobSpanID(runID, runAttempt, rootSpanName)
 
 		spanContextConfig := trace.SpanContextConfig{
 			TraceID:    traceID,
-			SpanID:     spanID,
+			SpanID:     jobSpanID,
 			TraceFlags: trace.FlagsSampled,
 		}
 
@@ -440,8 +440,8 @@ func main() {
 			trace.NewSpanContext(spanContextConfig),
 		)
 
-		ctx, rootSpan = tracer.Start(
-			ctx, // Use the new context here
+		_, rootSpan = tracer.Start(
+			ctx,
 			rootSpanName,
 			trace.WithNewRoot(), // This option ensures the span has no parent
 			trace.WithSpanKind(trace.SpanKindServer),
@@ -450,7 +450,6 @@ func main() {
 		rootSpan.End()
 	} else {
 		githubactions.Infof("is-root is not set to true")
-		ctx = context.Background()
 	}
 
 	spanContextConfig := trace.SpanContextConfig{
