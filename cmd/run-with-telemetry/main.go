@@ -336,6 +336,9 @@ func updateResourceAttributesFromFile(filePath string, params *InputParams) (boo
 		if closeErr := file.Close(); closeErr != nil {
 			githubactions.Warningf("error closing file: %v", closeErr)
 		}
+		if removeErr := os.Remove(filePath); removeErr != nil {
+			githubactions.Warningf("error removing file: %v", removeErr)
+		}
 	}()
 
 	scanner := bufio.NewScanner(file)
