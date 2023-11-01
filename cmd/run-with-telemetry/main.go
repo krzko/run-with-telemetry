@@ -432,7 +432,7 @@ func main() {
 	var success bool
 	var rootSpan trace.Span
 	var stepSpanID trace.SpanID
-	var childSpan trace.Span
+	// var childSpan trace.Span
 	var ctx context.Context
 
 	params := parseInputParams()
@@ -481,7 +481,6 @@ func main() {
 	} else if params.IsChild {
 		githubactions.Infof("operating in standalone mode, is-child")
 		ctx = handleChildSpan(params, tracer, traceID, job, runID, runAttempt)
-		defer childSpan.End()
 	} else {
 		githubactions.Infof("operating in GitHub Actions Event receiver mode")
 		ctx = handleNonParentSpan(params, traceID, stepSpanID)
