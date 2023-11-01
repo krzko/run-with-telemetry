@@ -40,7 +40,8 @@ type InputParams struct {
 	Run                     string
 	OtelExporterOtlpHeaders map[string]string
 	StepName                string
-	IsRoot                  bool
+	IsParent                bool
+	IsChild                 bool
 }
 
 type TextMapCarrier map[string]string
@@ -219,6 +220,91 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 	return spanID, nil
 }
 
+func handleChildSpan(params InputParams, tracer trace.Tracer, traceID trace.TraceID, job string, runID int64, runAttempt int) (context.Context, trace.Span) {
+	// Generate a span ID for the parent span using the generateJobSpanID function
+	parentSpanID, _ := generateJobSpanID(runID, runAttempt, job)
+
+	// Create a span context configuration for the child span with the generated parent span ID
+	spanContextConfig := trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     parentSpanID, // Set the parent span ID here
+		TraceFlags: trace.FlagsSampled,
+	}
+
+	// Create a new context with the specified SpanContext
+	ctx := trace.ContextWithSpanContext(
+		context.Background(),
+		trace.NewSpanContext(spanContextConfig),
+	)
+
+	// Start a new span for the child task/job
+	_, childSpan := tracer.Start(
+		ctx,
+		fmt.Sprintf("%s-child", job), // Naming the child span based on the job name
+		trace.WithSpanKind(trace.SpanKindServer),
+	)
+
+	return ctx, childSpan
+}
+
+func handleParentSpan(params InputParams, tracer trace.Tracer, traceID trace.TraceID, job string, runID int64, runAttempt int) (context.Context, trace.Span) {
+	jobSpanID, _ := generateJobSpanID(runID, runAttempt, job)
+
+	spanContextConfig := trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     jobSpanID,
+		TraceFlags: trace.FlagsSampled,
+	}
+
+	ctx := trace.ContextWithSpanContext(
+		context.Background(),
+		trace.NewSpanContext(spanContextConfig),
+	)
+
+	_, rootSpan := tracer.Start(
+		ctx,
+		job,
+		trace.WithSpanKind(trace.SpanKindServer),
+	)
+	rootSpan.End() // End the root span immediately after it's created
+
+	// Set TRACEPARENT environment variable for subsequent steps
+	traceparent := fmt.Sprintf("00-%s-%s-01", traceID, jobSpanID)
+	githubactions.SetEnv("TRACEPARENT", traceparent)
+
+	return ctx, rootSpan
+}
+
+func handleNonParentSpan(params InputParams, traceID trace.TraceID, stepSpanID trace.SpanID) context.Context {
+	var spanContextConfig trace.SpanContextConfig
+	traceparent := githubactions.GetInput("TRACEPARENT")
+	if traceparent != "" {
+		parts := strings.Split(traceparent, "-")
+		if len(parts) == 4 {
+			parentSpanID := parts[2]
+			psID, _ := trace.SpanIDFromHex(parentSpanID)
+			spanContextConfig = trace.SpanContextConfig{
+				TraceID:    traceID,
+				SpanID:     psID,
+				TraceFlags: trace.FlagsSampled,
+			}
+		} else {
+			githubactions.Warningf("Invalid TRACEPARENT format: %s", traceparent)
+		}
+	} else {
+		spanContextConfig = trace.SpanContextConfig{
+			TraceID:    traceID,
+			SpanID:     stepSpanID,
+			TraceFlags: trace.FlagsSampled,
+		}
+	}
+
+	return trace.ContextWithRemoteSpanContext(
+		context.Background(),
+		trace.NewSpanContext(spanContextConfig),
+	)
+}
+
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
 	var attr []attribute.KeyValue
 	for k, v := range attrs {
@@ -279,8 +365,11 @@ func parseInputParams() InputParams {
 		}
 	}
 
-	isRootStr := githubactions.GetInput("is-root")
-	isRoot := isRootStr == "true"
+	isChildStr := githubactions.GetInput("is-child")
+	isChild := isChildStr == "true"
+
+	isParentStr := githubactions.GetInput("is-parent")
+	isParent := isParentStr == "true"
 
 	return InputParams{
 		GithubToken:             githubactions.GetInput("github-token"),
@@ -290,7 +379,8 @@ func parseInputParams() InputParams {
 		Run:                     githubactions.GetInput("run"),
 		OtelExporterOtlpHeaders: headers,
 		StepName:                githubactions.GetInput("step-name"),
-		IsRoot:                  isRoot,
+		IsParent:                isParent,
+		IsChild:                 isChild,
 	}
 }
 
@@ -356,6 +446,7 @@ func main() {
 	var success bool
 	var rootSpan trace.Span
 	var stepSpanID trace.SpanID
+	var childSpan trace.Span
 	var ctx context.Context
 
 	params := parseInputParams()
@@ -398,70 +489,16 @@ func main() {
 
 	tracer := otel.Tracer(actionName)
 
-	if params.IsRoot {
-		githubactions.Infof("is-root is set to true")
-
-		jobSpanID, _ := generateJobSpanID(runID, runAttempt, job)
-
-		spanContextConfig := trace.SpanContextConfig{
-			TraceID:    traceID,
-			SpanID:     jobSpanID,
-			TraceFlags: trace.FlagsSampled,
-		}
-
-		// Create a new context with the specified SpanContext
-		ctx = trace.ContextWithSpanContext(
-			context.Background(),
-			trace.NewSpanContext(spanContextConfig),
-		)
-
-		_, rootSpan = tracer.Start(
-			ctx,
-			job,
-			// trace.WithNewRoot(),
-			trace.WithSpanKind(trace.SpanKindServer),
-		)
-		// End the root span immediately after it's created
-		rootSpan.End()
-
-		// Set TRACEPARENT environment variable for subsequent steps
-		traceparent := fmt.Sprintf("00-%s-%s-01", traceID, jobSpanID)
-		githubactions.SetEnv("TRACEPARENT", traceparent)
-
+	if params.IsParent {
+		githubactions.Infof("operating in standalone mode, is-root")
+		ctx, rootSpan = handleParentSpan(params, tracer, traceID, job, runID, runAttempt)
+	} else if params.IsChild {
+		githubactions.Infof("operating in standalone mode, is-child")
+		ctx, childSpan = handleChildSpan(params, tracer, traceID, job, runID, runAttempt)
+		defer childSpan.End()
 	} else {
-		githubactions.Infof("is-root is not set to true")
-
-		// Check for TRACEPARENT environment variable
-		traceparent := githubactions.GetInput("TRACEPARENT")
-		if traceparent != "" {
-			parts := strings.Split(traceparent, "-")
-			if len(parts) == 4 {
-				parentSpanID := parts[2]
-				psID, _ := trace.SpanIDFromHex(parentSpanID)
-				spanContextConfig := trace.SpanContextConfig{
-					TraceID:    traceID,
-					SpanID:     psID,
-					TraceFlags: trace.FlagsSampled,
-				}
-				_ = trace.ContextWithRemoteSpanContext(
-					context.Background(),
-					trace.NewSpanContext(spanContextConfig),
-				)
-			} else {
-				githubactions.Warningf("Invalid TRACEPARENT format: %s", traceparent)
-			}
-		} else {
-			spanContextConfig := trace.SpanContextConfig{
-				TraceID:    traceID,
-				SpanID:     stepSpanID,
-				TraceFlags: trace.FlagsSampled,
-			}
-
-			ctx = trace.ContextWithRemoteSpanContext(
-				context.Background(),
-				trace.NewSpanContext(spanContextConfig),
-			)
-		}
+		githubactions.Infof("operating in GitHub Actions Event receiver mode")
+		ctx = handleNonParentSpan(params, traceID, stepSpanID)
 	}
 
 	var spanName string

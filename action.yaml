@@ -13,10 +13,14 @@ inputs:
     required: false
     default: ${{ github.token }}
     description: A token that can be used with the GitHub API.
-  is-root:
+  is-child:
     required: false
     description: >
-      This is the root span, denoting the beginning of an operation.
+      This is the child span, which represents an operation.
+  is-parent:
+    required: false
+    description: >
+      This is the parent (root) span, denoting the beginning of an operation.
   otel-exporter-otlp-endpoint:
     required: true
     description: >
