@@ -219,7 +219,7 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 	return spanID, nil
 }
 
-func handleChild(ctx context.Context, params InputParams, tracer trace.Tracer) {
+func handleChild(ctx context.Context, params InputParams, tracer trace.Tracer) (context.Context, trace.Span) {
 	// Extract trace and span IDs from the context
 	sc := trace.SpanContextFromContext(ctx)
 
@@ -229,17 +229,19 @@ func handleChild(ctx context.Context, params InputParams, tracer trace.Tracer) {
 		SpanID:     sc.SpanID(),
 		TraceFlags: trace.FlagsSampled,
 	}
+
 	parentCtx := trace.ContextWithRemoteSpanContext(
 		ctx,
 		trace.NewSpanContext(parentSpanContextConfig),
 	)
-	_, stepSpan := tracer.Start(parentCtx, params.StepName)
-	stepSpan.End()
 
-	// ... pass context down to tracer.Start ...
+	_, stepSpan := tracer.Start(parentCtx, params.StepName)
+	defer stepSpan.End()
+
+	return parentCtx, stepSpan
 }
 
-func handleDefault(ctx context.Context, params InputParams, tracer trace.Tracer, runID int64, runAttempt int, job string, traceID trace.TraceID) {
+func handleDefault(ctx context.Context, params InputParams, tracer trace.Tracer, runID int64, runAttempt int, job string, traceID trace.TraceID) (context.Context, trace.Span) {
 	stepSpanID, err := generateStepSpanID(runID, runAttempt, job, params.StepName)
 	if err != nil {
 		githubactions.Fatalf("Failed to generate step span ID: %v", err)
@@ -255,9 +257,14 @@ func handleDefault(ctx context.Context, params InputParams, tracer trace.Tracer,
 		ctx,
 		trace.NewSpanContext(spanContextConfig),
 	)
+
+	_, stepSpan := tracer.Start(ctx, params.StepName)
+	defer stepSpan.End()
+
+	return ctx, stepSpan
 }
 
-func handleParent(ctx context.Context, params InputParams, tracer trace.Tracer) {
+func handleParent(ctx context.Context, params InputParams, tracer trace.Tracer) (context.Context, trace.Span) {
 	runID, err := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
 	if err != nil {
 		// handle error
@@ -294,14 +301,15 @@ func handleParent(ctx context.Context, params InputParams, tracer trace.Tracer) 
 
 	// Create and emit the root span using the parentCtx
 	_, rootSpan := tracer.Start(parentCtx, job)
-	rootSpan.End()
+	defer rootSpan.End()
 
 	// Create and emit a span for the stepName
 	stepCtx := trace.ContextWithSpan(ctx, rootSpan)
-	_, stepSpan := tracer.Start(stepCtx, params.StepName)
-	stepSpan.End()
 
-	// ... pass context down to tracer.Start ...
+	_, stepSpan := tracer.Start(stepCtx, params.StepName)
+	defer stepSpan.End()
+
+	return stepCtx, stepSpan
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
@@ -383,30 +391,6 @@ func mapToCommaSeparatedString(m map[string]string) string {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}
 	return strings.Join(result, ",")
-}
-
-func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
-	parts := strings.Split(traceparent, "-")
-	if len(parts) < 3 {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid traceparent: %s", traceparent)
-	}
-
-	traceID, err := hex.DecodeString(parts[1])
-	if err != nil {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid TraceID: %w", err)
-	}
-
-	spanID, err := hex.DecodeString(parts[2])
-	if err != nil {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid SpanID: %w", err)
-	}
-
-	var tid trace.TraceID
-	var sid trace.SpanID
-	copy(tid[:], traceID)
-	copy(sid[:], spanID)
-
-	return tid, sid, nil
 }
 
 func updateResourceAttributesFromFile(filePath string, params *InputParams) (bool, error) {
@@ -498,12 +482,13 @@ func main() {
 	tracer := otel.Tracer(actionName)
 
 	// Determine whether to handle as parent, child, or neither
+	var updatedCtx context.Context
 	if params.IsParent {
-		handleParent(ctx, params, tracer)
+		updatedCtx, _ = handleParent(ctx, params, tracer)
 	} else if params.IsChild {
-		handleChild(ctx, params, tracer)
+		updatedCtx, _ = handleChild(ctx, params, tracer)
 	} else {
-		handleDefault(ctx, params, tracer, runID, runAttempt, job, traceID)
+		updatedCtx, _ = handleDefault(ctx, params, tracer, runID, runAttempt, job, traceID)
 	}
 
 	var spanName string
@@ -513,7 +498,7 @@ func main() {
 		binaryName := strings.Fields(params.Run)[0] // Assumes the binary name has no spaces
 		spanName = fmt.Sprintf("Executing %s", binaryName)
 	}
-	_, span := tracer.Start(ctx, spanName)
+	_, span := tracer.Start(updatedCtx, spanName)
 	defer span.End()
 
 	shell := githubactions.GetInput("shell")
