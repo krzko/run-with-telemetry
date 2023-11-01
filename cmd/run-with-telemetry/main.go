@@ -440,7 +440,8 @@ func main() {
 	var rootSpan trace.Span
 	var stepSpanID trace.SpanID
 	// var childSpan trace.Span
-	var ctx context.Context
+
+	ctx := context.Background()
 
 	params := parseInputParams()
 
