@@ -220,7 +220,7 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 	return spanID, nil
 }
 
-func handleChildSpan(params InputParams, tracer trace.Tracer, traceID trace.TraceID, job string, runID int64, runAttempt int) context.Context {
+func handleChildSpan(params InputParams, tracer trace.Tracer, traceID trace.TraceID, job string, runID int64, runAttempt int) (context.Context, trace.Span) {
 	// Generate a span ID for the parent span using the generateJobSpanID function
 	parentSpanID, _ := generateJobSpanID(runID, runAttempt, job)
 
@@ -237,7 +237,14 @@ func handleChildSpan(params InputParams, tracer trace.Tracer, traceID trace.Trac
 		trace.NewSpanContext(spanContextConfig),
 	)
 
-	return ctx
+	// Start a new span for the child task/job
+	_, childSpan := tracer.Start(
+		ctx,
+		fmt.Sprintf("%s", params.StepName),
+		trace.WithSpanKind(trace.SpanKindServer),
+	)
+
+	return ctx, childSpan
 }
 
 func handleParentSpan(params InputParams, tracer trace.Tracer, traceID trace.TraceID, job string, runID int64, runAttempt int) context.Context {
@@ -432,7 +439,7 @@ func main() {
 	var success bool
 	var rootSpan trace.Span
 	var stepSpanID trace.SpanID
-	// var childSpan trace.Span
+	var childSpan trace.Span
 	var ctx context.Context
 
 	params := parseInputParams()
@@ -480,7 +487,8 @@ func main() {
 		ctx = handleParentSpan(params, tracer, traceID, job, runID, runAttempt)
 	} else if params.IsChild {
 		githubactions.Infof("operating in standalone mode, is-child")
-		ctx = handleChildSpan(params, tracer, traceID, job, runID, runAttempt)
+		ctx, childSpan = handleChildSpan(params, tracer, traceID, job, runID, runAttempt)
+		defer childSpan.End()
 	} else {
 		githubactions.Infof("operating in GitHub Actions Event receiver mode")
 		ctx = handleNonParentSpan(params, traceID, stepSpanID)
