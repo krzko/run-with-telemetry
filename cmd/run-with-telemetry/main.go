@@ -40,6 +40,8 @@ type InputParams struct {
 	Run                     string
 	OtelExporterOtlpHeaders map[string]string
 	StepName                string
+	IsParent                bool
+	IsChild                 bool
 }
 
 type TextMapCarrier map[string]string
@@ -217,6 +219,91 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 	return spanID, nil
 }
 
+func handleChild(ctx context.Context, params InputParams, tracer trace.Tracer) {
+	// Extract trace and span IDs from the context
+	sc := trace.SpanContextFromContext(ctx)
+
+	// Create and emit a span for the stepName with root span as parent
+	parentSpanContextConfig := trace.SpanContextConfig{
+		TraceID:    sc.TraceID(),
+		SpanID:     sc.SpanID(),
+		TraceFlags: trace.FlagsSampled,
+	}
+	parentCtx := trace.ContextWithRemoteSpanContext(
+		ctx,
+		trace.NewSpanContext(parentSpanContextConfig),
+	)
+	_, stepSpan := tracer.Start(parentCtx, params.StepName)
+	stepSpan.End()
+
+	// ... pass context down to tracer.Start ...
+}
+
+func handleDefault(ctx context.Context, params InputParams, tracer trace.Tracer, runID int64, runAttempt int, job string, traceID trace.TraceID) {
+	stepSpanID, err := generateStepSpanID(runID, runAttempt, job, params.StepName)
+	if err != nil {
+		githubactions.Fatalf("Failed to generate step span ID: %v", err)
+	}
+
+	spanContextConfig := trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     stepSpanID,
+		TraceFlags: trace.FlagsSampled,
+	}
+
+	ctx = trace.ContextWithRemoteSpanContext(
+		ctx,
+		trace.NewSpanContext(spanContextConfig),
+	)
+}
+
+func handleParent(ctx context.Context, params InputParams, tracer trace.Tracer) {
+	runID, err := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
+	if err != nil {
+		// handle error
+	}
+	runAttempt, err := strconv.Atoi(os.Getenv("GITHUB_RUN_ATTEMPT"))
+	if err != nil {
+		// handle error
+	}
+	job := os.Getenv("GITHUB_JOB")
+
+	// Generate the root span ID
+	hashInput := fmt.Sprintf("%d%d%s", runID, runAttempt, job)
+	rootSpanID, err := generateSpanID(hashInput)
+	if err != nil {
+		// handle error
+	}
+
+	// Generate a TraceID (assuming the function generateTraceID exists)
+	traceID, err := generateTraceID(runID, runAttempt)
+	if err != nil {
+		// handle error
+	}
+
+	// Create a SpanContext with the generated TraceID and rootSpanID
+	parentSpanContextConfig := trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     rootSpanID,
+		TraceFlags: trace.FlagsSampled,
+	}
+	parentCtx := trace.ContextWithRemoteSpanContext(
+		ctx,
+		trace.NewSpanContext(parentSpanContextConfig),
+	)
+
+	// Create and emit the root span using the parentCtx
+	_, rootSpan := tracer.Start(parentCtx, job)
+	rootSpan.End()
+
+	// Create and emit a span for the stepName
+	stepCtx := trace.ContextWithSpan(ctx, rootSpan)
+	_, stepSpan := tracer.Start(stepCtx, params.StepName)
+	stepSpan.End()
+
+	// ... pass context down to tracer.Start ...
+}
+
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
 	var attr []attribute.KeyValue
 	for k, v := range attrs {
@@ -285,6 +372,8 @@ func parseInputParams() InputParams {
 		Run:                     githubactions.GetInput("run"),
 		OtelExporterOtlpHeaders: headers,
 		StepName:                githubactions.GetInput("step-name"),
+		IsParent:                githubactions.GetInput("is-parent") == "true",
+		IsChild:                 githubactions.GetInput("is-child") == "true",
 	}
 }
 
@@ -371,12 +460,15 @@ func updateResourceAttributesFromFile(filePath string, params *InputParams) (boo
 
 func main() {
 	var exitCode int
-	var success bool
+	// var success bool
+
+	ctx := context.Background()
 
 	params := parseInputParams()
 
 	githubactions.Infof("Running step: %s", params.StepName)
 
+	// Neither parent nor child, proceed as originally implemented
 	runID, err := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
 	if err != nil {
 		githubactions.Fatalf("Failed to parse GITHUB_RUN_ID: %v", err)
@@ -396,37 +488,23 @@ func main() {
 	defer shutdown()
 
 	defer func() {
+		// emitStepSummary(params, traceID, stepSpanID, success)
 		shutdown()
 		if exitCode != 0 {
 			os.Exit(exitCode)
 		}
 	}()
-
-	stepSpanID, err := generateStepSpanID(runID, runAttempt, job, params.StepName)
-	if err != nil {
-		githubactions.Fatalf("Failed to generate step span ID: %v", err)
-	}
-
-	spanContextConfig := trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     stepSpanID,
-		TraceFlags: trace.FlagsSampled,
-	}
-
-	ctx := trace.ContextWithRemoteSpanContext(
-		context.Background(),
-		trace.NewSpanContext(spanContextConfig),
-	)
 
 	tracer := otel.Tracer(actionName)
 
-	defer func() {
-		emitStepSummary(params, traceID, stepSpanID, success)
-		shutdown()
-		if exitCode != 0 {
-			os.Exit(exitCode)
-		}
-	}()
+	// Determine whether to handle as parent, child, or neither
+	if params.IsParent {
+		handleParent(ctx, params, tracer)
+	} else if params.IsChild {
+		handleChild(ctx, params, tracer)
+	} else {
+		handleDefault(ctx, params, tracer, runID, runAttempt, job, traceID)
+	}
 
 	var spanName string
 	if strings.Count(params.Run, "\n") > 0 {
@@ -448,7 +526,7 @@ func main() {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		exitCode = 1
-		success = false
+		// success = false
 
 		// Prepare base attributes for span event
 		baseAttributes := []trace.EventOption{
@@ -465,7 +543,7 @@ func main() {
 	} else {
 		githubactions.Infof("Command executed successfully")
 		span.SetStatus(codes.Ok, "Command executed successfully")
-		success = true
+		// success = true
 	}
 
 	wasUpdated, err := updateResourceAttributesFromFile("otel_resource_attributes.txt", &params)
