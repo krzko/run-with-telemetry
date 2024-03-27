@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/go-github/v60/github"
 	"github.com/sethvargo/go-githubactions"
 
 	"go.opentelemetry.io/otel"
@@ -222,6 +223,27 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 	return spanID, nil
 }
 
+func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, attempt int64) (string, error) {
+	client := github.NewClient(nil).WithAuthToken(token)
+
+	opts := &github.ListWorkflowJobsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	runJobs, _, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, int64(runID), opts)
+	if err != nil {
+		return "", err
+	}
+
+	runnerName := os.Getenv("RUNNER_NAME")
+	for _, job := range runJobs.Jobs {
+		if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
+			return *job.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no job found matching the criteria")
+}
+
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
 	var attr []attribute.KeyValue
 	for k, v := range attrs {
@@ -259,6 +281,10 @@ func initTracer(endpoint string, serviceName string, attrs map[string]string, he
 
 func parseInputParams() InputParams {
 	githubactions.Infof("Starting %s version: %s (%s) commit: %s", actionName, BUILD_VERSION, BUILD_DATE, COMMIT_ID)
+
+	if githubactions.GetInput("github-token") == "" {
+		githubactions.Fatalf("No GitHub token provided")
+	}
 
 	resourceAttrs := make(map[string]string)
 	if githubactions.GetInput("otel-resource-attributes") == "" {
@@ -388,6 +414,7 @@ func main() {
 	var success bool
 
 	params := parseInputParams()
+	ctx := context.Background()
 
 	githubactions.Infof("Running step: %s", params.StepName)
 
@@ -399,7 +426,11 @@ func main() {
 	if err != nil {
 		githubactions.Fatalf("Failed to parse GITHUB_RUN_ATTEMPT: %v", err)
 	}
-	job := os.Getenv("GITHUB_JOB")
+	// job := os.Getenv("GITHUB_JOB")
+	job, err := getGitHubJobName(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
+	if err != nil {
+		githubactions.Fatalf("Failed to get job name: %v", err)
+	}
 
 	traceID, err := generateTraceID(runID, runAttempt)
 	if err != nil {
@@ -427,7 +458,7 @@ func main() {
 		TraceFlags: trace.FlagsSampled,
 	}
 
-	ctx := trace.ContextWithRemoteSpanContext(
+	ctx = trace.ContextWithRemoteSpanContext(
 		context.Background(),
 		trace.NewSpanContext(spanContextConfig),
 	)

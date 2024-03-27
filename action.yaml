@@ -10,7 +10,7 @@ description: >
 author: Kristof Kowalski
 inputs:
   github-token:
-    required: false
+    required: true
     default: ${{ github.token }}
     description: A token that can be used with the GitHub API.
   is-root:
