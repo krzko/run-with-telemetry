@@ -134,6 +134,11 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		fmt.Sprintf("OTEL_SERVICE_NAME=%s", otelServiceName),
 	)
 
+	if len(headers) > 0 {
+		headersStr := mapToCommaSeparatedString(headers)
+		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_EXPORTER_OTLP_HEADERS=%s", headersStr))
+	}
+
 	if otelResourceAttributes != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
 	}
@@ -256,24 +261,33 @@ func parseInputParams() InputParams {
 	githubactions.Infof("Starting %s version: %s (%s) commit: %s", actionName, BUILD_VERSION, BUILD_DATE, COMMIT_ID)
 
 	resourceAttrs := make(map[string]string)
-	attrs := strings.Split(githubactions.GetInput("otel-resource-attributes"), ",")
-	for _, attr := range attrs {
-		keyValue := strings.Split(attr, "=")
-		if len(keyValue) == 2 {
-			resourceAttrs[keyValue[0]] = keyValue[1]
-		} else {
-			githubactions.Warningf("Invalid resource attribute: %s", attr)
+	if githubactions.GetInput("otel-resource-attributes") == "" {
+		githubactions.Infof("No resource attributes provided")
+	} else {
+		githubactions.Infof("Resource attributes provided")
+		attrs := strings.Split(githubactions.GetInput("otel-resource-attributes"), ",")
+		for _, attr := range attrs {
+			keyValue := strings.Split(attr, "=")
+			if len(keyValue) == 2 {
+				resourceAttrs[keyValue[0]] = keyValue[1]
+			} else {
+				githubactions.Warningf("Invalid resource attribute: %s", attr)
+			}
 		}
 	}
 
 	headers := make(map[string]string)
-	hs := strings.Split(githubactions.GetInput("otel-exporter-otlp-headers"), ",")
-	for _, header := range hs {
-		keyValue := strings.Split(header, "=")
-		if len(keyValue) == 2 {
-			headers[keyValue[0]] = keyValue[1]
-		} else {
-			githubactions.Warningf("invalid header: %s", header)
+	if githubactions.GetInput("otel-exporter-otlp-headers") == "" {
+		githubactions.Infof("No OTLP headers provided")
+	} else {
+		hs := strings.Split(githubactions.GetInput("otel-exporter-otlp-headers"), ",")
+		for _, header := range hs {
+			keyValue := strings.Split(header, "=")
+			if len(keyValue) == 2 {
+				headers[keyValue[0]] = keyValue[1]
+			} else {
+				githubactions.Warningf("invalid header: %s", header)
+			}
 		}
 	}
 
