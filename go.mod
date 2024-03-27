@@ -3,6 +3,7 @@ module github.com/krzko/run-with-telemetry
 go 1.21.3
 
 require (
+	github.com/google/go-github/v60 v60.0.0
 	github.com/sethvargo/go-githubactions v1.1.0
 	go.opentelemetry.io/otel v1.19.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.19.0
@@ -15,6 +16,7 @@ require (
 	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
 	github.com/sethvargo/go-envconfig v0.8.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.19.0 // indirect
