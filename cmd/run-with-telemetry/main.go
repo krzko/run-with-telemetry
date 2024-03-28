@@ -224,12 +224,18 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 }
 
 func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, attempt int64) (string, error) {
+	splitRepo := strings.Split(repo, "/")
+	if len(splitRepo) != 2 {
+		return "", fmt.Errorf("GITHUB_REPOSITORY environment variable is malformed: %s", repo)
+	}
+	owner, repo = splitRepo[0], splitRepo[1]
+
 	client := github.NewClient(nil).WithAuthToken(token)
 
 	opts := &github.ListWorkflowJobsOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	runJobs, _, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, int64(runID), opts)
+	runJobs, _, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
 	if err != nil {
 		return "", err
 	}
