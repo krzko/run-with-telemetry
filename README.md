@@ -53,9 +53,9 @@ on:
   workflow_dispatch
 
 env:
-  OTEL_EXPORTER_OTLP_ENDPOINT: https://otelcol:4317
-  OTEL_RESOURCE_ATTRIBUTES: deployment.environent=dev,service.version=1.0.0
-  OTEL_SERVICE_NAME: o11y-tools
+  otel-exporter-otlp-endpoint: otelcol.foo.corp:443
+  otel-service-name: o11y.workflows
+  otel-resource-attributes: deployment.environent=dev,service.version=0.1.0
 
 jobs:
   build-stuff:
@@ -64,20 +64,20 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Run a single-line command with telemetry
-        uses: krzko/run-with-telemetry@main
+        uses: krzko/run-with-telemetry@v0.1.1
         with:
-          otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
-          otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
+          otel-exporter-otlp-endpoint: ${{ env.otel-exporter-otlp-endpoint }}
+          otel-resource-attributes: ${{ env.otel-resource-attributes }}
+          otel-service-name: ${{ env.otel-service-name }}
           step-name: Run a single-line command with telemetry
           run: make build
 
       - name: Run multi-line commands with telemetry
-        uses: krzko/run-with-telemetry@main
+        uses: krzko/run-with-telemetry@v0.1.1
         with:
-          otel-exporter-otlp-endpoint: ${{ env.OTEL_EXPORTER_OTLP_ENDPOINT }}
-          otel-resource-attributes: ${{ env.OTEL_RESOURCE_ATTRIBUTES }}
-          otel-service-name: ${{ env.OTEL_SERVICE_NAME }}
+          otel-exporter-otlp-endpoint: ${{ env.otel-exporter-otlp-endpoint }}
+          otel-resource-attributes: ${{ env.otel-resource-attributes }}
+          otel-service-name: ${{ env.otel-service-name }}
           step-name: Run multi-line commands with telemetry
           run: |
             cd src
