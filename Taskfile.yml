@@ -21,6 +21,7 @@ tasks:
         GOOS={{.GOOS}} GOARCH={{.GOARCH}} GOARM={{.GOARM}} GOMIPS={{.GOMIPS}} GOAMD64={{.GOAMD64}} \
         go build -o bin/run-with-telemetry-{{.TASK}} -ldflags \
         "-w -s -X 'main.BUILD_VERSION={{.BUILD_VERSION}}' -X 'main.BUILD_DATE={{.BUILD_DATE}}' -X 'main.COMMIT_ID={{.COMMIT_ID}}'" cmd/run-with-telemetry/main.go
+        upx --best --lzma bin/run-with-telemetry-{{.TASK}}
   linux-386:
     cmds:
       - task: build-tpl
@@ -247,7 +248,7 @@ tasks:
       # - task: windows-amd64_v2.exe
       # - task: windows-amd64_v3.exe
       # - task: windows-amd64_v4.exe
-      - task: windows-arm64.exe
+      # - task: windows-arm64.exe
       - task: darwin-amd64
       - task: darwin-arm64
       # - task: freebsd-amd64

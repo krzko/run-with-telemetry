@@ -41,6 +41,7 @@ type InputParams struct {
 	Run                     string
 	OtelExporterOtlpHeaders map[string]string
 	StepName                string
+	JobName                 string
 }
 
 type TextMapCarrier map[string]string
@@ -331,6 +332,7 @@ func parseInputParams() InputParams {
 		Run:                     githubactions.GetInput("run"),
 		OtelExporterOtlpHeaders: headers,
 		StepName:                githubactions.GetInput("step-name"),
+		JobName:                 githubactions.GetInput("job-name"),
 	}
 }
 
@@ -432,16 +434,21 @@ func main() {
 	if err != nil {
 		githubactions.Fatalf("Failed to parse GITHUB_RUN_ATTEMPT: %v", err)
 	}
-	// job := os.Getenv("GITHUB_JOB")
-	job, err := getGitHubJobName(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
-	if err != nil {
-		githubactions.Fatalf("Failed to get job name: %v", err)
+
+	job := params.JobName
+	if job == "" {
+		job, err = getGitHubJobName(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
+		if err != nil {
+			githubactions.Fatalf("Failed to get job name: %v", err)
+		}
 	}
+	githubactions.SetOutput("job-name", job)
 
 	traceID, err := generateTraceID(runID, runAttempt)
 	if err != nil {
 		githubactions.Fatalf("Failed to generate trace ID: %v", err)
 	}
+	githubactions.SetOutput("trace-id", traceID.String())
 
 	shutdown := initTracer(params.OtelExporterEndpoint, params.OtelServiceName, params.OtelResourceAttrs, params.OtelExporterOtlpHeaders)
 	defer shutdown()

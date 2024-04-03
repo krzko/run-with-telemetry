@@ -1,8 +1,8 @@
 # run-with-telemetry
 
-⚠️⚠️⚠️ WORK IN PROGRESS - DO NOT USE ⚠️⚠️⚠️
-
 The **Run with Telemetry** GitHub Action allows you to execute a command on a GitHub Actions runner and export the associated OpenTelemetry trace data to a specified endpoint. This action aims to provide monitoring and observability within your CI/CD pipelines by leveraging OpenTelemetry's tracing capabilities.
+
+This action is intended to be used in conjunction with the [OpenTelemetry Collector GitHub Actions Receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/27460). This receiver processes GitHub Actions webhook events to observe workflows and jobs, converting them into trace telemetry for detailed observability.
 
 ## Features
 
@@ -16,8 +16,8 @@ The **Run with Telemetry** GitHub Action allows you to execute a command on a Gi
 
 ## Input Input Parameters
 
+* **`job-name` (Optional):** The name of the job. Default is the job name provided by the GitHub Actions runtime.
 * **`github-token` (Optional):** A token for interacting with the GitHub API. Default is the GitHub token provided by the GitHub Actions runtime.
-* **`is-root` (Optional):** Denotes if this is the root span, marking the beginning of an operation.
 * **`otel-exporter-otlp-endpoint` (Required):** The base endpoint URL (with an optionally-specified port number) for sending trace data.
 * **`otel-exporter-otlp-headers` (Optional):** Custom headers for the OTLP gRPC exporter, formatted as comma-separated values: header1=value1,header2=value2.
 * **`otel-resource-attributes` (Optional):** Key-value pairs as resource attributes, formatted as comma-separated values: key1=value1,key2=value2.
@@ -26,20 +26,20 @@ The **Run with Telemetry** GitHub Action allows you to execute a command on a Gi
 * **`shell` (Optional):** Override the default shell settings in the runner's operating system. Supported options are `bash`, `pwsh`, `python`, `sh`, `cmd`, `pwsh`, and `powershell`. Default is `bash`.
 * **`step-name` (Required):** The name of the step.
 
-## Integration with GitHub Actions Event Receiver
+## Integration with GitHub Actions Receiver
 
-The **Run with Telemetry** action is ideally used in conjunction with the [GitHub Actions Event Receiver](#). This receiver processes GitHub Actions webhook events to observe workflows and jobs, handling [`workflow_job`](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_job) and [`workflow_run`](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run) event payloads, and transforming them into trace telemetry.
+The **Run with Telemetry** action is ideally used in conjunction with the [OpenTelemetry Collector GitHub Actions Receiver](https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/27460). This receiver processes GitHub Actions webhook events to observe workflows and jobs, handling [`workflow_job`](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_job) and [`workflow_run`](https://docs.github.com/en/webhooks/webhook-events-and-payloads#workflow_run) event payloads, and transforming them into trace telemetry.
 
 Each GitHub Action workflow or job, along with its steps, are converted into trace spans, enabling the observation of workflow execution times, success, and failure rates.
 
-The GitHub Actions Event Receiver ensures data integrity by validating the payload if a secret is configured, as recommended. This validation aligns with GitHub's payload validation process.
+The GitHub Actions Receiver ensures data integrity by validating the payload if a secret is configured, as recommended. This validation aligns with GitHub's payload validation process.
 
 Additionally, the **Run with Telemetry** action also supports stand-alone mode when using the `is-root` input parameter, providing flexibility in setup based on your observability requirements.
 
 <img
   src="/assets/images/trace-with-ghaer.png"
-  alt="Trace with Github Actions Event Receiver"
-  title="Trace with Github Actions Event Receiver"
+  alt="Trace with GitHub Actions Receiver"
+  title="Trace with GitHub Actions Receiver"
   style="display: inline-block; margin: 0 auto; max-width: 300px">
 
 ## Usage
