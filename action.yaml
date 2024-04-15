@@ -16,6 +16,12 @@ inputs:
     required: true
     default: ${{ github.token }}
     description: A token that can be used with the GitHub API.
+  job-as-parent:
+    required: false
+    default: false
+    description: >
+      Use the job name as the trace parent. This is useful when you want to
+      correlate the trace with the job.
   job-name:
     required: false
     description: >
