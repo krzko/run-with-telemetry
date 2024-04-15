@@ -16,6 +16,7 @@ This action is intended to be used in conjunction with the [OpenTelemetry Collec
 
 ## Input Input Parameters
 
+* **`job-as-parent` (Optional):** If set to `true`, the job will be used as the parent span for the command execution. Default is `false`.
 * **`job-name` (Optional):** The name of the job. Default is the job name provided by the GitHub Actions runtime.
 * **`github-token` (Optional):** A token for interacting with the GitHub API. Default is the GitHub token provided by the GitHub Actions runtime.
 * **`otel-exporter-otlp-endpoint` (Required):** The base endpoint URL (with an optionally-specified port number) for sending trace data.

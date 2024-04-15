@@ -42,6 +42,7 @@ type InputParams struct {
 	OtelExporterOtlpHeaders map[string]string
 	StepName                string
 	JobName                 string
+	JobAsParent             string
 }
 
 type TextMapCarrier map[string]string
@@ -192,7 +193,8 @@ func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
 	return traceID, nil
 }
 
-func generateSpanID(input string) (trace.SpanID, error) {
+func generateJobPanID(runID int64, runAttempt int, jobName string) (trace.SpanID, error) {
+	input := fmt.Sprintf("%d%d%s", runID, runAttempt, jobName)
 	hash := sha256.Sum256([]byte(input))
 	spanIDHex := hex.EncodeToString(hash[:])
 
@@ -333,6 +335,7 @@ func parseInputParams() InputParams {
 		OtelExporterOtlpHeaders: headers,
 		StepName:                githubactions.GetInput("step-name"),
 		JobName:                 githubactions.GetInput("job-name"),
+		JobAsParent:             githubactions.GetInput("job-as-parent"),
 	}
 }
 
@@ -342,30 +345,6 @@ func mapToCommaSeparatedString(m map[string]string) string {
 		result = append(result, fmt.Sprintf("%s=%s", k, v))
 	}
 	return strings.Join(result, ",")
-}
-
-func parseTraceParent(traceparent string) (trace.TraceID, trace.SpanID, error) {
-	parts := strings.Split(traceparent, "-")
-	if len(parts) < 3 {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid traceparent: %s", traceparent)
-	}
-
-	traceID, err := hex.DecodeString(parts[1])
-	if err != nil {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid TraceID: %w", err)
-	}
-
-	spanID, err := hex.DecodeString(parts[2])
-	if err != nil {
-		return trace.TraceID{}, trace.SpanID{}, fmt.Errorf("invalid SpanID: %w", err)
-	}
-
-	var tid trace.TraceID
-	var sid trace.SpanID
-	copy(tid[:], traceID)
-	copy(sid[:], spanID)
-
-	return tid, sid, nil
 }
 
 func updateResourceAttributesFromFile(filePath string, params *InputParams) (bool, error) {
@@ -460,14 +439,23 @@ func main() {
 		}
 	}()
 
-	stepSpanID, err := generateStepSpanID(runID, runAttempt, job, params.StepName)
-	if err != nil {
-		githubactions.Fatalf("Failed to generate step span ID: %v", err)
+	var parentSpandID trace.SpanID
+	jobAsParentInput := params.JobAsParent
+	if jobAsParentInput == "true" {
+		parentSpandID, err = generateJobPanID(runID, runAttempt, job)
+		if err != nil {
+			githubactions.Fatalf("Failed to generate step span ID: %v", err)
+		}
+	} else {
+		parentSpandID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
+		if err != nil {
+			githubactions.Fatalf("Failed to generate step span ID: %v", err)
+		}
 	}
 
 	spanContextConfig := trace.SpanContextConfig{
 		TraceID:    traceID,
-		SpanID:     stepSpanID,
+		SpanID:     parentSpandID,
 		TraceFlags: trace.FlagsSampled,
 	}
 
@@ -479,7 +467,7 @@ func main() {
 	tracer := otel.Tracer(actionName)
 
 	defer func() {
-		emitStepSummary(params, traceID, stepSpanID, success)
+		emitStepSummary(params, traceID, parentSpandID, success)
 		shutdown()
 		if exitCode != 0 {
 			os.Exit(exitCode)
