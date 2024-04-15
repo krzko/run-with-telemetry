@@ -14,18 +14,29 @@ This action is intended to be used in conjunction with the [OpenTelemetry Collec
 * **Environment Variable Injection:** Ability to inject environment variables into the shells, aiding in dynamic command executions.
 * **OpenTelemetry Resource Attributes File:** Ability to read a file (`otel_resource_attributes.txt`) for additional OpenTelemetry resource attributes that will be added to the spans generated.
 
-## Input Input Parameters
+## Usage
 
-* **`job-as-parent` (Optional):** If set to `true`, the job will be used as the parent span for the command execution. Default is `false`.
-* **`job-name` (Optional):** The name of the job. Default is the job name provided by the GitHub Actions runtime.
-* **`github-token` (Optional):** A token for interacting with the GitHub API. Default is the GitHub token provided by the GitHub Actions runtime.
-* **`otel-exporter-otlp-endpoint` (Required):** The base endpoint URL (with an optionally-specified port number) for sending trace data.
-* **`otel-exporter-otlp-headers` (Optional):** Custom headers for the OTLP gRPC exporter, formatted as comma-separated values: header1=value1,header2=value2.
-* **`otel-resource-attributes` (Optional):** Key-value pairs as resource attributes, formatted as comma-separated values: key1=value1,key2=value2.
-* **`otel-service-name` (Required):** The logical name of the service which sets the value of the service.name resource attribute.
-* **`run` (Required):** The command to be executed.
-* **`shell` (Optional):** Override the default shell settings in the runner's operating system. Supported options are `bash`, `pwsh`, `python`, `sh`, `cmd`, `pwsh`, and `powershell`. Default is `bash`.
-* **`step-name` (Required):** The name of the step.
+### Inputs
+
+| Name                         | Description                                                                                                            | Required |
+|------------------------------|------------------------------------------------------------------------------------------------------------------------|----------|
+| `job-as-parent`              | If set to `true`, the job will be used as the parent span for the command execution.                                   | Optional |
+| `job-name`                   | The name of the job.                                                                                                   | Optional |
+| `github-token`               | A token for interacting with the GitHub API.                                                                           | Optional |
+| `otel-exporter-otlp-endpoint`| The base endpoint URL (with an optionally-specified port number) for sending trace data.                               | Required |
+| `otel-exporter-otlp-headers` | Custom headers for the OTLP gRPC exporter, formatted as comma-separated values: `header1=value1,header2=value2`.       | Optional |
+| `otel-resource-attributes`   | Key-value pairs as resource attributes, formatted as comma-separated values: `key1=value1,key2=value2`.                | Optional |
+| `otel-service-name`          | The logical name of the service which sets the value of the service.name resource attribute.                           | Required |
+| `run`                        | The command to be executed.                                                                                            | Required |
+| `shell`                      | Override the default shell settings in the runner's operating system. Supported options are `bash`, `pwsh`, `python`, `sh`, `cmd`, `pwsh`, and `powershell`. | Optional |
+| `step-name`                  | The name of the step.                                                                                                  | Required |
+
+### Outputs
+
+| Name       | Description                                              |
+|------------|----------------------------------------------------------|
+| `trace-id` | The Trace ID generated for the OpenTelemetry trace.      |
+| `job-name` | The name of the GitHub Actions job.                      |
 
 ## Integration with GitHub Actions Receiver
 
