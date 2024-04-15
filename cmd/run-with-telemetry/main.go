@@ -474,13 +474,8 @@ func main() {
 		}
 	}()
 
-	var spanName string
-	if strings.Count(params.Run, "\n") > 0 {
-		spanName = "Executing multiple commands"
-	} else {
-		binaryName := strings.Fields(params.Run)[0] // Assumes the binary name has no spaces
-		spanName = fmt.Sprintf("Executing %s", binaryName)
-	}
+	spanName := fmt.Sprintf("Run %s", strings.ToLower(params.StepName))
+
 	_, span := tracer.Start(ctx, spanName)
 	defer span.End()
 
