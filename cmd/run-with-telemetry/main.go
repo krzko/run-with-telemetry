@@ -124,7 +124,6 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 	traceparent := fmt.Sprintf("00-%s-%s-01", sc.TraceID().String(), sc.SpanID().String())
 
 	otelExporterOtlpEndpoint := githubactions.GetInput("otel-exporter-otlp-endpoint")
-	otelServiceName := githubactions.GetInput("otel-service-name")
 	otelResourceAttributes := githubactions.GetInput("otel-resource-attributes")
 
 	headersStr := mapToCommaSeparatedString(headers)
@@ -134,7 +133,6 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		fmt.Sprintf("SPANID=%s", sc.SpanID().String()),
 		fmt.Sprintf("OTEL_EXPORTER_OTLP_HEADERS=%s", headersStr),
 		fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", otelExporterOtlpEndpoint),
-		fmt.Sprintf("OTEL_SERVICE_NAME=%s", otelServiceName),
 	)
 
 	if len(headers) > 0 {
