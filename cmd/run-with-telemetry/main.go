@@ -260,9 +260,14 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 		}
 	}
 
-	err = fmt.Errorf("no job found matching the criteria")
-	githubactions.Errorf("Error: %v", err)
-	return "", err
+	// If no job matches the runner name and attempt criteria, use the last job in the list
+	if len(runJobs.Jobs) > 0 {
+		lastJob := runJobs.Jobs[len(runJobs.Jobs)-1]
+		githubactions.Infof("No matching job found based on runner name. Using last job in list: %s", *lastJob.Name)
+		return *lastJob.Name, nil
+	}
+
+	return "", fmt.Errorf("no jobs found in the run")
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
