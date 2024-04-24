@@ -225,30 +225,44 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 }
 
 func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, attempt int64) (string, error) {
+	githubactions.Infof("Getting GitHub job name for run ID: %d and attempt: %d", runID, attempt)
 	splitRepo := strings.Split(repo, "/")
 	if len(splitRepo) != 2 {
-		return "", fmt.Errorf("GITHUB_REPOSITORY environment variable is malformed: %s", repo)
+		err := fmt.Errorf("GITHUB_REPOSITORY environment variable is malformed: %s", repo)
+		githubactions.Errorf("Error: %v", err)
+		return "", err
 	}
 	owner, repo = splitRepo[0], splitRepo[1]
+	githubactions.Infof("Parsed GitHub repository owner: %s, repo: %s", owner, repo)
 
 	client := github.NewClient(nil).WithAuthToken(token)
-
 	opts := &github.ListWorkflowJobsOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	runJobs, _, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
+
+	githubactions.Infof("Fetching workflow jobs from GitHub API")
+	runJobs, resp, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
 	if err != nil {
+		githubactions.Errorf("Failed to fetch workflow jobs: %v", err)
+		if resp != nil {
+			githubactions.Infof("GitHub API response status: %s", resp.Status)
+		}
 		return "", err
 	}
 
 	runnerName := os.Getenv("RUNNER_NAME")
+	githubactions.Infof("Looking for job with runner name: %s", runnerName)
 	for _, job := range runJobs.Jobs {
+		githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
 		if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
+			githubactions.Infof("Match found, job name: %s", *job.Name)
 			return *job.Name, nil
 		}
 	}
 
-	return "", fmt.Errorf("no job found matching the criteria")
+	err = fmt.Errorf("no job found matching the criteria")
+	githubactions.Errorf("Error: %v", err)
+	return "", err
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
