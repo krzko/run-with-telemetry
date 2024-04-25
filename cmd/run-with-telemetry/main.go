@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -246,6 +247,15 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 		githubactions.Errorf("Failed to fetch workflow jobs: %v", err)
 		if resp != nil {
 			githubactions.Infof("GitHub API response status: %s", resp.Status)
+			if resp.Body != nil {
+				bodyBytes, readErr := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if readErr != nil {
+					githubactions.Errorf("Failed to read response body: %v", readErr)
+				} else {
+					githubactions.Debugf("GitHub API response body: %s", string(bodyBytes))
+				}
+			}
 		}
 		return "", err
 	}
@@ -253,21 +263,18 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 	runnerName := os.Getenv("RUNNER_NAME")
 	githubactions.Infof("Looking for job with runner name: %s", runnerName)
 	for _, job := range runJobs.Jobs {
-		githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
-		if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
-			githubactions.Infof("Match found, job name: %s", *job.Name)
-			return *job.Name, nil
+		if job.RunnerName != nil && job.Name != nil && job.RunAttempt != nil {
+			githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
+			if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
+				githubactions.Infof("Match found, job name: %s", *job.Name)
+				return *job.Name, nil
+			}
 		}
 	}
 
-	// If no job matches the runner name and attempt criteria, use the last job in the list
-	if len(runJobs.Jobs) > 0 {
-		lastJob := runJobs.Jobs[len(runJobs.Jobs)-1]
-		githubactions.Infof("No matching job found based on runner name. Using last job in list: %s", *lastJob.Name)
-		return *lastJob.Name, nil
-	}
-
-	return "", fmt.Errorf("no jobs found in the run")
+	err = fmt.Errorf("no job found matching the criteria")
+	githubactions.Errorf("Error: %v", err)
+	return "", err
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
