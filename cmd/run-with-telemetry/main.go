@@ -263,10 +263,12 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 	runnerName := os.Getenv("RUNNER_NAME")
 	githubactions.Infof("Looking for job with runner name: %s", runnerName)
 	for _, job := range runJobs.Jobs {
-		githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
-		if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
-			githubactions.Infof("Match found, job name: %s", *job.Name)
-			return *job.Name, nil
+		if job.RunnerName != nil && job.Name != nil && job.RunAttempt != nil {
+			githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
+			if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
+				githubactions.Infof("Match found, job name: %s", *job.Name)
+				return *job.Name, nil
+			}
 		}
 	}
 
