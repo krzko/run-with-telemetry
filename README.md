@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Run a single-line command with telemetry
-        uses: krzko/run-with-telemetry@v0.4.2
+        uses: krzko/run-with-telemetry@v0.4.3
         with:
           otel-exporter-otlp-endpoint: ${{ env.otel-exporter-otlp-endpoint }}
           otel-resource-attributes: ${{ env.otel-resource-attributes }}
@@ -85,7 +85,7 @@ jobs:
           run: make build
 
       - name: Run multi-line commands with telemetry
-        uses: krzko/run-with-telemetry@v0.4.2
+        uses: krzko/run-with-telemetry@v0.4.3
         with:
           otel-exporter-otlp-endpoint: ${{ env.otel-exporter-otlp-endpoint }}
           otel-resource-attributes: ${{ env.otel-resource-attributes }}
