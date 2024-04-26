@@ -192,7 +192,7 @@ func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
 	return traceID, nil
 }
 
-func generateJobPanID(runID int64, runAttempt int, jobName string) (trace.SpanID, error) {
+func generateJobSpanID(runID int64, runAttempt int, jobName string) (trace.SpanID, error) {
 	input := fmt.Sprintf("%d%d%s", runID, runAttempt, jobName)
 	hash := sha256.Sum256([]byte(input))
 	spanIDHex := hex.EncodeToString(hash[:])
@@ -464,7 +464,7 @@ func main() {
 	var parentSpandID trace.SpanID
 	jobAsParentInput := params.JobAsParent
 	if jobAsParentInput == "true" {
-		parentSpandID, err = generateJobPanID(runID, runAttempt, job)
+		parentSpandID, err = generateJobSpanID(runID, runAttempt, job)
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
 		}
