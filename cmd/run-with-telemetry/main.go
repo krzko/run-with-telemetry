@@ -440,6 +440,7 @@ func main() {
 
 	job := params.JobName
 	if job == "" {
+		githubactions.Infof("Job name not provided, fetching from GitHub API")
 		job, err = getGitHubJobName(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
 		if err != nil {
 			githubactions.Fatalf("Failed to get job name: %v", err)
@@ -466,11 +467,13 @@ func main() {
 	var parentSpandID trace.SpanID
 	jobAsParentInput := params.JobAsParent
 	if jobAsParentInput == "true" {
+		githubactions.Infof("Using job as parent")
 		parentSpandID, err = generateJobSpanID(runID, runAttempt, job)
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
 		}
 	} else {
+		githubactions.Infof("Using step as parent")
 		parentSpandID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
