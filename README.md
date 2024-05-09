@@ -64,6 +64,8 @@ name: Build
 on:
   workflow_dispatch
 
+permissions: read-all
+
 env:
   otel-exporter-otlp-endpoint: otelcol.foo.corp:443
   otel-service-name: o11y.workflows
