@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/go-github/v60/github"
 	"github.com/sethvargo/go-githubactions"
@@ -102,32 +104,32 @@ func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.Spa
 
 func executeCommand(shell string, command string, span trace.Span, headers map[string]string) (string, int, string, string, error) {
 	var cmd *exec.Cmd
+	var args []string
+
 	switch shell {
 	case "bash":
-		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
-	case "pwsh":
-		cmd = exec.Command("pwsh", "-command", command)
+		args = []string{"--noprofile", "--norc", "-eo", "pipefail", "-c", command}
+	case "pwsh", "powershell":
+		args = []string{"-command", command}
 	case "python":
-		cmd = exec.Command("python", "-c", command)
+		args = []string{"-c", command}
 	case "sh":
-		cmd = exec.Command("sh", "-e", "-c", command)
+		args = []string{"-e", "-c", command}
 	case "cmd":
-		cmd = exec.Command("cmd", "/D", "/E:ON", "/V:OFF", "/S", "/C", command)
-	case "powershell":
-		cmd = exec.Command("powershell", "-command", command)
+		args = []string{"/D", "/E:ON", "/V:OFF", "/S", "/C", command}
 	default:
 		shell = "bash"
-		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
+		args = []string{"--noprofile", "--norc", "-eo", "pipefail", "-c", command}
 	}
 
-	// Get the trace context from the span
+	cmd = exec.Command(shell, args...)
+
 	sc := span.SpanContext()
 	traceparent := fmt.Sprintf("00-%s-%s-01", sc.TraceID().String(), sc.SpanID().String())
-
 	otelExporterOtlpEndpoint := githubactions.GetInput("otel-exporter-otlp-endpoint")
 	otelResourceAttributes := githubactions.GetInput("otel-resource-attributes")
-
 	headersStr := mapToCommaSeparatedString(headers)
+
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("TRACEPARENT=%s", traceparent),
 		fmt.Sprintf("TRACEID=%s", sc.TraceID().String()),
@@ -135,11 +137,6 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		fmt.Sprintf("OTEL_EXPORTER_OTLP_HEADERS=%s", headersStr),
 		fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", otelExporterOtlpEndpoint),
 	)
-
-	if len(headers) > 0 {
-		headersStr := mapToCommaSeparatedString(headers)
-		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_EXPORTER_OTLP_HEADERS=%s", headersStr))
-	}
 
 	if otelResourceAttributes != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
@@ -154,28 +151,41 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		return shell, 0, "", "", err
 	}
 
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			githubactions.Infof("%s", line)
+			stdoutBuf.WriteString(line + "\n")
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			githubactions.Errorf("%s", line)
+			stderrBuf.WriteString(line + "\n")
+		}
+	}()
+
 	if err := cmd.Start(); err != nil {
 		return shell, 0, "", "", err
 	}
 
-	stdoutBuf := new(bytes.Buffer)
-	stderrBuf := new(bytes.Buffer)
-	stdoutBuf.ReadFrom(stdoutPipe)
-	stderrBuf.ReadFrom(stderrPipe)
-
-	// Print stdout and stderr to GitHub Actions console
-	if stdout := stdoutBuf.String(); len(stdout) > 0 {
-		githubactions.Infof("Standard Output: %s", stdout)
-	}
-	if stderr := stderrBuf.String(); len(stderr) > 0 {
-		githubactions.Errorf("Standard Error: %s", stderr)
-	}
+	wg.Wait()
 
 	if err := cmd.Wait(); err != nil {
-		return shell, cmd.Process.Pid, stdoutBuf.String(), stderrBuf.String(), err
+		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
 	}
 
-	return shell, cmd.Process.Pid, stdoutBuf.String(), stderrBuf.String(), nil
+	return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), nil
 }
 
 func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
@@ -192,7 +202,7 @@ func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
 	return traceID, nil
 }
 
-func generateJobPanID(runID int64, runAttempt int, jobName string) (trace.SpanID, error) {
+func generateJobSpanID(runID int64, runAttempt int, jobName string) (trace.SpanID, error) {
 	input := fmt.Sprintf("%d%d%s", runID, runAttempt, jobName)
 	hash := sha256.Sum256([]byte(input))
 	spanIDHex := hex.EncodeToString(hash[:])
@@ -241,40 +251,63 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 
-	githubactions.Infof("Fetching workflow jobs from GitHub API")
-	runJobs, resp, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
-	if err != nil {
-		githubactions.Errorf("Failed to fetch workflow jobs: %v", err)
-		if resp != nil {
-			githubactions.Infof("GitHub API response status: %s", resp.Status)
-			if resp.Body != nil {
-				bodyBytes, readErr := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				if readErr != nil {
-					githubactions.Errorf("Failed to read response body: %v", readErr)
-				} else {
-					githubactions.Debugf("GitHub API response body: %s", string(bodyBytes))
+	var runJobs *github.Jobs
+	var resp *github.Response
+	var err error
+	var attempts int = 3 // Number of attempts for retrying API call
+
+	for i := 0; i < attempts; i++ {
+		githubactions.Infof("Fetching workflow jobs from GitHub API, attempt %d/%d", i+1, attempts)
+		runJobs, resp, err = client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
+		if err == nil {
+			runnerName := os.Getenv("RUNNER_NAME")
+			githubactions.Infof("Looking for job with runner name: %s", runnerName)
+			for _, job := range runJobs.Jobs {
+				if job.RunnerName != nil && job.Name != nil && job.RunAttempt != nil {
+					githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
+					if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
+						githubactions.Infof("Match found, job name: %s", *job.Name)
+						return *job.Name, nil
+					}
 				}
 			}
-		}
-		return "", err
-	}
-
-	runnerName := os.Getenv("RUNNER_NAME")
-	githubactions.Infof("Looking for job with runner name: %s", runnerName)
-	for _, job := range runJobs.Jobs {
-		if job.RunnerName != nil && job.Name != nil && job.RunAttempt != nil {
-			githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
-			if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
-				githubactions.Infof("Match found, job name: %s", *job.Name)
-				return *job.Name, nil
+			githubactions.Infof("No matching job found on attempt %d", i+1)
+			if i < attempts-1 {
+				// Retry if the maximum number of attempts is not reached
+				time.Sleep(3 * time.Second) // Wait before retrying
+				continue
+			}
+		} else {
+			githubactions.Errorf("Failed to fetch workflow jobs: %v", err)
+			if resp != nil {
+				githubactions.Infof("GitHub API response status: %s", resp.Status)
+				if resp.Body != nil {
+					bodyBytes, readErr := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					if readErr != nil {
+						githubactions.Errorf("Failed to read response body: %v", readErr)
+					} else {
+						githubactions.Debugf("GitHub API response body: %s", string(bodyBytes))
+					}
+				}
+			}
+			if i < attempts-1 {
+				// Retry if the maximum number of attempts is not reached
+				time.Sleep(3 * time.Second) // Wait before retrying
+				continue
 			}
 		}
+		break
 	}
 
-	err = fmt.Errorf("no job found matching the criteria")
-	githubactions.Errorf("Error: %v", err)
-	return "", err
+	// Generate a fallback job span ID if no job is found after all attempts
+	spanID, genErr := generateJobSpanID(runID, int(attempt), "fallback-job")
+	if genErr != nil {
+		githubactions.Errorf("Error generating fallback job span ID: %v", genErr)
+		return "", fmt.Errorf("failed to retrieve job and generate fallback span ID: %v", genErr)
+	}
+	githubactions.Infof("No job found matching the criteria after %d attempts, using fallback span ID: %s", attempts, spanID)
+	return "fallback-job", nil
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
@@ -466,7 +499,7 @@ func main() {
 	var parentSpandID trace.SpanID
 	jobAsParentInput := params.JobAsParent
 	if jobAsParentInput == "true" {
-		parentSpandID, err = generateJobPanID(runID, runAttempt, job)
+		parentSpandID, err = generateJobSpanID(runID, runAttempt, job)
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
 		}
