@@ -140,9 +140,51 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
 	}
 
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return shell, 0, "", "", err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return shell, 0, "", "", err
+	}
+
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	const bufferSize = 1024 * 2024 // 2 MB
+	stdoutBuffer := make([]byte, bufferSize)
+	stderrBuffer := make([]byte, bufferSize)
+
+	go func() {
+		for {
+			n, err := stdoutPipe.Read(stdoutBuffer)
+			if n > 0 {
+				stdoutBuf.Write(stdoutBuffer[:n])
+			}
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				githubactions.Errorf("Error reading stdout: %v", err)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			n, err := stderrPipe.Read(stderrBuffer)
+			if n > 0 {
+				stderrBuf.Write(stderrBuffer[:n])
+			}
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				githubactions.Errorf("Error reading stderr: %v", err)
+				return
+			}
+		}
+	}()
 
 	if err := cmd.Start(); err != nil {
 		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
