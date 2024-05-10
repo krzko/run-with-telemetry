@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/google/go-github/v60/github"
 	"github.com/sethvargo/go-githubactions"
@@ -139,18 +141,50 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
 	}
 
-	stdout, err := cmd.Output()
-	githubactions.Infof("Standard Output: %s", string(stdout))
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			stderr := string(exitErr.Stderr)
-			githubactions.Errorf("Standard Error: %s", stderr)
-			return shell, exitErr.ProcessState.Pid(), string(stdout), stderr, err
-		}
+		return shell, 0, "", "", err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
 		return shell, 0, "", "", err
 	}
 
-	return shell, cmd.ProcessState.Pid(), string(stdout), "", nil
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			githubactions.Infof("Standard Output: %s", line)
+			stdoutBuf.WriteString(line + "\n")
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			githubactions.Errorf("Standard Error: %s", line)
+			stderrBuf.WriteString(line + "\n")
+		}
+	}()
+
+	if err := cmd.Start(); err != nil {
+		return shell, 0, "", "", err
+	}
+
+	wg.Wait()
+
+	if err := cmd.Wait(); err != nil {
+		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
+	}
+
+	return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), nil
 }
 
 func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
