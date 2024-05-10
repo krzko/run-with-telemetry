@@ -140,6 +140,7 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 	}
 
 	stdout, err := cmd.Output()
+	githubactions.Infof("Standard Output: %s", string(stdout))
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			stderr := string(exitErr.Stderr)
@@ -148,8 +149,6 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		}
 		return shell, 0, "", "", err
 	}
-
-	githubactions.Infof("Standard Output: %s", string(stdout))
 
 	return shell, cmd.ProcessState.Pid(), string(stdout), "", nil
 }
