@@ -102,32 +102,32 @@ func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.Spa
 
 func executeCommand(shell string, command string, span trace.Span, headers map[string]string) (string, int, string, string, error) {
 	var cmd *exec.Cmd
+	var args []string
+
 	switch shell {
 	case "bash":
-		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
-	case "pwsh":
-		cmd = exec.Command("pwsh", "-command", command)
+		args = []string{"--noprofile", "--norc", "-eo", "pipefail", "-c", command}
+	case "pwsh", "powershell":
+		args = []string{"-command", command}
 	case "python":
-		cmd = exec.Command("python", "-c", command)
+		args = []string{"-c", command}
 	case "sh":
-		cmd = exec.Command("sh", "-e", "-c", command)
+		args = []string{"-e", "-c", command}
 	case "cmd":
-		cmd = exec.Command("cmd", "/D", "/E:ON", "/V:OFF", "/S", "/C", command)
-	case "powershell":
-		cmd = exec.Command("powershell", "-command", command)
+		args = []string{"/D", "/E:ON", "/V:OFF", "/S", "/C", command}
 	default:
 		shell = "bash"
-		cmd = exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command)
+		args = []string{"--noprofile", "--norc", "-eo", "pipefail", "-c", command}
 	}
 
-	// Get the trace context from the span
+	cmd = exec.Command(shell, args...)
+
 	sc := span.SpanContext()
 	traceparent := fmt.Sprintf("00-%s-%s-01", sc.TraceID().String(), sc.SpanID().String())
-
 	otelExporterOtlpEndpoint := githubactions.GetInput("otel-exporter-otlp-endpoint")
 	otelResourceAttributes := githubactions.GetInput("otel-resource-attributes")
-
 	headersStr := mapToCommaSeparatedString(headers)
+
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("TRACEPARENT=%s", traceparent),
 		fmt.Sprintf("TRACEID=%s", sc.TraceID().String()),
@@ -136,46 +136,33 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		fmt.Sprintf("OTEL_EXPORTER_OTLP_ENDPOINT=%s", otelExporterOtlpEndpoint),
 	)
 
-	if len(headers) > 0 {
-		headersStr := mapToCommaSeparatedString(headers)
-		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_EXPORTER_OTLP_HEADERS=%s", headersStr))
-	}
-
 	if otelResourceAttributes != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
 	}
 
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return shell, 0, "", "", err
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return shell, 0, "", "", err
-	}
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		return shell, 0, "", "", err
-	}
-
-	stdoutBuf := new(bytes.Buffer)
-	stderrBuf := new(bytes.Buffer)
-	stdoutBuf.ReadFrom(stdoutPipe)
-	stderrBuf.ReadFrom(stderrPipe)
-
-	// Print stdout and stderr to GitHub Actions console
-	if stdout := stdoutBuf.String(); len(stdout) > 0 {
-		githubactions.Infof("Standard Output: %s", stdout)
-	}
-	if stderr := stderrBuf.String(); len(stderr) > 0 {
-		githubactions.Errorf("Standard Error: %s", stderr)
+		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return shell, cmd.Process.Pid, stdoutBuf.String(), stderrBuf.String(), err
+		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
 	}
 
-	return shell, cmd.Process.Pid, stdoutBuf.String(), stderrBuf.String(), nil
+	stdout := stdoutBuf.String()
+	stderr := stderrBuf.String()
+
+	if len(stdout) > 0 {
+		githubactions.Infof("Standard Output: %s", stdout)
+	}
+	if len(stderr) > 0 {
+		githubactions.Errorf("Standard Error: %s", stderr)
+	}
+
+	return shell, cmd.ProcessState.Pid(), stdout, stderr, nil
 }
 
 func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
