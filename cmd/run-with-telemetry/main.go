@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -140,69 +139,19 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		cmd.Env = append(cmd.Env, fmt.Sprintf("OTEL_RESOURCE_ATTRIBUTES=%s", otelResourceAttributes))
 	}
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	stdout, err := cmd.Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			stderr := string(exitErr.Stderr)
+			githubactions.Errorf("Standard Error: %s", stderr)
+			return shell, exitErr.ProcessState.Pid(), string(stdout), stderr, err
+		}
 		return shell, 0, "", "", err
 	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return shell, 0, "", "", err
-	}
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	const bufferSize = 1024 * 2024 // 2 MB
-	stdoutBuffer := make([]byte, bufferSize)
-	stderrBuffer := make([]byte, bufferSize)
+	githubactions.Infof("Standard Output: %s", string(stdout))
 
-	go func() {
-		for {
-			n, err := stdoutPipe.Read(stdoutBuffer)
-			if n > 0 {
-				stdoutBuf.Write(stdoutBuffer[:n])
-			}
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				githubactions.Errorf("Error reading stdout: %v", err)
-				return
-			}
-		}
-	}()
-
-	go func() {
-		for {
-			n, err := stderrPipe.Read(stderrBuffer)
-			if n > 0 {
-				stderrBuf.Write(stderrBuffer[:n])
-			}
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				githubactions.Errorf("Error reading stderr: %v", err)
-				return
-			}
-		}
-	}()
-
-	if err := cmd.Start(); err != nil {
-		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return shell, cmd.ProcessState.Pid(), stdoutBuf.String(), stderrBuf.String(), err
-	}
-
-	stdout := stdoutBuf.String()
-	stderr := stderrBuf.String()
-
-	githubactions.Infof("Standard Output: %s", stdout)
-	if len(stderr) > 0 {
-		githubactions.Errorf("Standard Error: %s", stderr)
-	}
-
-	return shell, cmd.ProcessState.Pid(), stdout, stderr, nil
+	return shell, cmd.ProcessState.Pid(), string(stdout), "", nil
 }
 
 func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
