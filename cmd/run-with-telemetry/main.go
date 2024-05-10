@@ -155,11 +155,8 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 	stdout := stdoutBuf.String()
 	stderr := stderrBuf.String()
 
-	if len(stdout) > 0 {
-		githubactions.Infof("Standard Output: %s", stdout)
-	}
+	githubactions.Infof("Standard Output: %s", stdout)
 	if len(stderr) > 0 {
-		githubactions.Infof("Standard Output: %s", stdout)
 		githubactions.Errorf("Standard Error: %s", stderr)
 	}
 
