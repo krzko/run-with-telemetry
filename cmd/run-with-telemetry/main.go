@@ -159,7 +159,7 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		scanner := bufio.NewScanner(stdoutPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
-			githubactions.Infof("Standard Output: %s", line)
+			githubactions.Infof("%s", line)
 			stdoutBuf.WriteString(line + "\n")
 		}
 	}()
@@ -169,7 +169,7 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
-			githubactions.Errorf("Standard Error: %s", line)
+			githubactions.Errorf("%s", line)
 			stderrBuf.WriteString(line + "\n")
 		}
 	}()
