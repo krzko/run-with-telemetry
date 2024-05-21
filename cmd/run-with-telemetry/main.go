@@ -46,6 +46,7 @@ type InputParams struct {
 	StepName                string
 	JobName                 string
 	JobAsParent             string
+	StderrAsInfo            string
 }
 
 type TextMapCarrier map[string]string
@@ -102,7 +103,7 @@ func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.Spa
 	githubactions.AddStepSummary(markdownSummary)
 }
 
-func executeCommand(shell string, command string, span trace.Span, headers map[string]string) (string, int, string, string, error) {
+func executeCommand(shell string, command string, span trace.Span, headers map[string]string, stderrAsInfo bool) (string, int, string, string, error) {
 	var cmd *exec.Cmd
 	var args []string
 
@@ -170,7 +171,11 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
-			githubactions.Errorf("%s", line)
+			if stderrAsInfo {
+				githubactions.Infof("%s", line)
+			} else {
+				githubactions.Errorf("%s", line)
+			}
 			stderrBuf.WriteString(line + "\n")
 		}
 	}()
@@ -393,6 +398,7 @@ func parseInputParams() InputParams {
 		StepName:                githubactions.GetInput("step-name"),
 		JobName:                 githubactions.GetInput("job-name"),
 		JobAsParent:             githubactions.GetInput("job-as-parent"),
+		StderrAsInfo:            githubactions.GetInput("stderr-as-info"),
 	}
 }
 
@@ -539,7 +545,8 @@ func main() {
 	shell := githubactions.GetInput("shell")
 	githubactions.Infof("Executing command: %s with shell: %s", params.Run, shell)
 
-	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run, span, params.OtelExporterOtlpHeaders)
+	stderrAsInfo := strings.ToLower(params.StderrAsInfo) == "true"
+	usedShell, pid, stdout, stderr, err := executeCommand(shell, params.Run, span, params.OtelExporterOtlpHeaders, stderrAsInfo)
 
 	if err != nil {
 		githubactions.Errorf("Failed to execute command: %v", err)
