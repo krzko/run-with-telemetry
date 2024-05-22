@@ -166,6 +166,9 @@ func executeCommand(shell string, command string, span trace.Span, headers map[s
 		}
 	}()
 
+	if stderrAsInfo {
+		githubactions.Infof("Redirecting stderr to info: %t", stderrAsInfo)
+	}
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderrPipe)
