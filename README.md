@@ -28,7 +28,8 @@ This action is intended to be used in conjunction with the [OpenTelemetry Collec
 | `otel-resource-attributes`   | Key-value pairs as resource attributes, formatted as comma-separated values: `key1=value1,key2=value2`.                | Optional |
 | `otel-service-name`          | The logical name of the service which sets the value of the service.name resource attribute.                           | Required |
 | `run`                        | The command to be executed.                                                                                            | Required |
-| `shell`                      | Override the default shell settings in the runner's operating system. Supported options are `bash`, `pwsh`, `python`, `sh`, `cmd`, `pwsh`, and `powershell`. | Optional |
+| `shell`                      | Override the default shell settings in the runner's operating system. Supported options are `bash`, `pwsh`, `python`, `sh`, `cmd`, `pwsh`, and `powershell`. Default: `bash`. | Optional |
+| `stderr-as-info`             | If set to `true`, the standard error output will be treated as standard output. Default: `false`.                      | Optional |
 | `step-name`                  | The name of the step.                                                                                                  | Required |
 
 ### Outputs
