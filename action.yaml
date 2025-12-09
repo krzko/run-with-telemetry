@@ -67,6 +67,11 @@ inputs:
     required: true
     description: >
       The name of the step.
+  emit-step-summary:
+    required: false
+    default: true
+    description: >
+      Emit a markdown step summary with detailed information about the trace. 
 
 outputs:
   trace-id:

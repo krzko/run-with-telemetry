@@ -46,6 +46,7 @@ type InputParams struct {
 	StepName                string
 	JobName                 string
 	JobAsParent             string
+	EmitStepSummary         string
 	StderrAsInfo            string
 }
 
@@ -243,15 +244,15 @@ func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, s
 	return spanID, nil
 }
 
-func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, attempt int64) (string, error) {
+func getGitHubJob(ctx context.Context, token, owner, repo string, runID, attempt int64) (*github.WorkflowJob, error) {
 	githubactions.Infof("Getting GitHub job name for run ID: %d and attempt: %d", runID, attempt)
 	splitRepo := strings.Split(repo, "/")
 	if len(splitRepo) != 2 {
 		err := fmt.Errorf("GITHUB_REPOSITORY environment variable is malformed: %s", repo)
 		githubactions.Errorf("Error: %v", err)
-		return "", err
+		return nil, err
 	}
-	owner, repo = splitRepo[0], splitRepo[1]
+	_, repo = splitRepo[0], splitRepo[1]
 	githubactions.Infof("Parsed GitHub repository owner: %s, repo: %s", owner, repo)
 
 	client := github.NewClient(nil).WithAuthToken(token)
@@ -262,7 +263,7 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 	var runJobs *github.Jobs
 	var resp *github.Response
 	var err error
-	var attempts int = 3 // Number of attempts for retrying API call
+	attempts := 3 // Number of attempts for retrying API call
 
 	for i := 0; i < attempts; i++ {
 		githubactions.Infof("Fetching workflow jobs from GitHub API, attempt %d/%d", i+1, attempts)
@@ -275,7 +276,7 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 					githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
 					if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
 						githubactions.Infof("Match found, job name: %s", *job.Name)
-						return *job.Name, nil
+						return job, nil
 					}
 				}
 			}
@@ -291,7 +292,10 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 				githubactions.Infof("GitHub API response status: %s", resp.Status)
 				if resp.Body != nil {
 					bodyBytes, readErr := io.ReadAll(resp.Body)
-					resp.Body.Close()
+					closeErr := resp.Body.Close()
+					if closeErr != nil {
+						githubactions.Warningf("Failed to close response body: %v", closeErr)
+					}
 					if readErr != nil {
 						githubactions.Errorf("Failed to read response body: %v", readErr)
 					} else {
@@ -308,14 +312,24 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 		break
 	}
 
-	// Generate a fallback job span ID if no job is found after all attempts
-	spanID, genErr := generateJobSpanID(runID, int(attempt), "fallback-job")
-	if genErr != nil {
-		githubactions.Errorf("Error generating fallback job span ID: %v", genErr)
-		return "", fmt.Errorf("failed to retrieve job and generate fallback span ID: %v", genErr)
+	// No job found after all attempts
+	githubactions.Infof("No job found matching the criteria after %d attempts", attempts)
+	return nil, fmt.Errorf("no matching job found after %d attempts", attempts)
+}
+
+// findStepNumber searches for a step with the given name in the job and returns its number
+func findStepNumber(job *github.WorkflowJob, stepName string) (int, error) {
+	if job == nil || job.Steps == nil {
+		return 0, fmt.Errorf("job or steps are nil")
 	}
-	githubactions.Infof("No job found matching the criteria after %d attempts, using fallback span ID: %s", attempts, spanID)
-	return "fallback-job", nil
+
+	for _, step := range job.Steps {
+		if step.Name != nil && step.Number != nil && *step.Name == stepName {
+			return int(*step.Number), nil
+		}
+	}
+
+	return 0, fmt.Errorf("step '%s' not found in job", stepName)
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
@@ -401,6 +415,7 @@ func parseInputParams() InputParams {
 		StepName:                githubactions.GetInput("step-name"),
 		JobName:                 githubactions.GetInput("job-name"),
 		JobAsParent:             githubactions.GetInput("job-as-parent"),
+		EmitStepSummary:         githubactions.GetInput("emit-step-summary"),
 		StderrAsInfo:            githubactions.GetInput("stderr-as-info"),
 	}
 }
@@ -480,14 +495,24 @@ func main() {
 		githubactions.Fatalf("Failed to parse GITHUB_RUN_ATTEMPT: %v", err)
 	}
 
-	job := params.JobName
-	if job == "" {
-		job, err = getGitHubJobName(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
-		if err != nil {
-			githubactions.Fatalf("Failed to get job name: %v", err)
+	// Get job name and job object for step number retrieval
+	var jobName string
+	var githubJob *github.WorkflowJob
+	githubJob, err = getGitHubJob(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
+	if err != nil {
+		githubactions.Fatalf("Failed to get job object: %v", err)
+	}
+
+	if params.JobName != "" {
+		jobName = params.JobName
+	} else {
+		if githubJob != nil && githubJob.Name != nil {
+			jobName = *githubJob.Name
+		} else {
+			githubactions.Fatalf("Retrieved job object is nil or has no name")
 		}
 	}
-	githubactions.SetOutput("job-name", job)
+	githubactions.SetOutput("job-name", jobName)
 
 	traceID, err := generateTraceID(runID, runAttempt)
 	if err != nil {
@@ -508,12 +533,25 @@ func main() {
 	var parentSpandID trace.SpanID
 	jobAsParentInput := params.JobAsParent
 	if jobAsParentInput == "true" {
-		parentSpandID, err = generateJobSpanID(runID, runAttempt, job)
+		parentSpandID, err = generateJobSpanID(runID, runAttempt, jobName)
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
 		}
 	} else {
-		parentSpandID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
+		// Try to find step number from GitHub job
+		if githubJob != nil {
+			stepNumber, stepErr := findStepNumber(githubJob, params.StepName)
+			if stepErr != nil {
+				githubactions.Warningf("Failed to find step number for '%s': %v, generating span ID without step number", params.StepName, stepErr)
+				parentSpandID, err = generateStepSpanID(runID, runAttempt, jobName, params.StepName)
+			} else {
+				githubactions.Infof("Found step number %d for step '%s'", stepNumber, params.StepName)
+				parentSpandID, err = generateStepSpanID(runID, runAttempt, jobName, params.StepName, stepNumber)
+			}
+		} else {
+			githubactions.Warningf("No GitHub job object available, generating span ID without step number")
+			parentSpandID, err = generateStepSpanID(runID, runAttempt, jobName, params.StepName)
+		}
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
 		}
@@ -533,7 +571,9 @@ func main() {
 	tracer := otel.Tracer(actionName)
 
 	defer func() {
-		emitStepSummary(params, traceID, parentSpandID, success)
+		if strings.ToLower(params.EmitStepSummary) == "true" {
+			emitStepSummary(params, traceID, parentSpandID, success)
+		}
 		shutdown()
 		if exitCode != 0 {
 			os.Exit(exitCode)

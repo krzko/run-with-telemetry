@@ -31,6 +31,7 @@ This action is intended to be used in conjunction with the [OpenTelemetry Collec
 | `shell`                      | Override the default shell settings in the runner's operating system. Supported options are `bash`, `pwsh`, `python`, `sh`, `cmd`, `pwsh`, and `powershell`. Default: `bash`. | Optional |
 | `stderr-as-info`             | If set to `true`, the standard error output will be treated as standard output. Default: `false`.                      | Optional |
 | `step-name`                  | The name of the step.                                                                                                  | Required |
+| `emit-step-summary`          | Emit a markdown step summary with detailed information about the trace. Default: `true`.                               | Optional |
 
 ### Outputs
 

@@ -20,7 +20,9 @@ tasks:
         GOOS={{.GOOS}} GOARCH={{.GOARCH}} GOARM={{.GOARM}} GOMIPS={{.GOMIPS}} GOAMD64={{.GOAMD64}} \
         go build -o bin/run-with-telemetry-{{.TASK}} -ldflags \
         "-w -s -X 'main.BUILD_VERSION={{.BUILD_VERSION}}' -X 'main.BUILD_DATE={{.BUILD_DATE}}' -X 'main.COMMIT_ID={{.COMMIT_ID}}'" cmd/run-with-telemetry/main.go
-        upx --best --lzma bin/run-with-telemetry-{{.TASK}}
+        if [ "{{.GOOS}}" != "darwin" ]; then
+          upx --best --lzma "bin/run-with-telemetry-{{.TASK}}"
+        fi
   linux-386:
     cmds:
       - task: build-tpl
@@ -243,16 +245,16 @@ tasks:
       # - task: linux-mips64
       # - task: linux-mips64le
       # - task: windows-386.exe
-      - task: windows-amd64.exe
+      # - task: windows-amd64.exe
       # - task: windows-amd64_v2.exe
       # - task: windows-amd64_v3.exe
       # - task: windows-amd64_v4.exe
       # - task: windows-arm64.exe
-      - task: darwin-amd64
+      # - task: darwin-amd64
       - task: darwin-arm64
       # - task: freebsd-amd64
       # - task: freebsd-arm64
   release:
     cmds:
       - task: default
-      - ghr -u finb -t $GITHUB_TOKEN -replace -recreate -name "Bump {{.BUILD_VERSION}}" --debug {{.BUILD_VERSION}} dist
+      - ghr -u MercuryTechnologies -t $GITHUB_TOKEN -replace -recreate -name "Bump {{.BUILD_VERSION}}" --debug {{.BUILD_VERSION}} dist
