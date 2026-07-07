@@ -210,8 +210,25 @@ func generateTraceID(runID int64, runAttempt int) (trace.TraceID, error) {
 	return traceID, nil
 }
 
-func generateJobSpanID(runID int64, runAttempt int, jobName string) (trace.SpanID, error) {
-	input := fmt.Sprintf("%d%d%s", runID, runAttempt, jobName)
+// generateJobSpanID derives a job span ID from the job's GitHub check-run ID
+// (WorkflowJob.ID), matching the scheme used by the OpenTelemetry Collector
+// GitHub Actions Receiver (receiver.githubreceiver.UseCheckRunID) so that
+// this action's spans attach to the receiver's job span rather than the
+// legacy runID+attempt+jobName hash.
+func generateJobSpanID(checkRunID int64) (trace.SpanID, error) {
+	return spanIDFromCheckRun(fmt.Sprintf("%d-j", checkRunID))
+}
+
+// generateStepSpanID derives a step span ID from the job's check-run ID and
+// step name, matching the receiver's scheme. If a job has two steps with the
+// same name, the receiver disambiguates them by appending "-N"; this action
+// only knows about its own step, so duplicate step names within a job are not
+// supported here (use unique step names, as recommended by the receiver).
+func generateStepSpanID(checkRunID int64, stepName string) (trace.SpanID, error) {
+	return spanIDFromCheckRun(fmt.Sprintf("%d-%s-s", checkRunID, stepName))
+}
+
+func spanIDFromCheckRun(input string) (trace.SpanID, error) {
 	hash := sha256.Sum256([]byte(input))
 	spanIDHex := hex.EncodeToString(hash[:])
 
@@ -224,68 +241,33 @@ func generateJobSpanID(runID int64, runAttempt int, jobName string) (trace.SpanI
 	return spanID, nil
 }
 
-func generateStepSpanID(runID int64, runAttempt int, jobName, stepName string, stepNumber ...int) (trace.SpanID, error) {
-	var input string
-	if len(stepNumber) > 0 && stepNumber[0] > 0 {
-		input = fmt.Sprintf("%d%d%s%s%d", runID, runAttempt, jobName, stepName, stepNumber[0])
-	} else {
-		input = fmt.Sprintf("%d%d%s%s", runID, runAttempt, jobName, stepName)
-	}
-	hash := sha256.Sum256([]byte(input))
-	spanIDHex := hex.EncodeToString(hash[:])
-
-	var spanID trace.SpanID
-	_, err := hex.Decode(spanID[:], []byte(spanIDHex[16:32]))
-	if err != nil {
-		return trace.SpanID{}, err
-	}
-
-	return spanID, nil
-}
-
-func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, attempt int64) (string, error) {
-	githubactions.Infof("Getting GitHub job name for run ID: %d and attempt: %d", runID, attempt)
+// resolveWorkflowJob looks up the currently running job via the GitHub API
+// and returns its display name and its ID (the "check run ID" GitHub assigns
+// to the job, used to derive deterministic span IDs). If preferredJobName is
+// set (the job-name input), it is used to match the job instead of the
+// runner-name heuristic.
+func resolveWorkflowJob(ctx context.Context, token, repo, preferredJobName string, runID, attempt int64) (string, int64, error) {
+	githubactions.Infof("Resolving GitHub job for run ID: %d and attempt: %d", runID, attempt)
 	splitRepo := strings.Split(repo, "/")
 	if len(splitRepo) != 2 {
 		err := fmt.Errorf("GITHUB_REPOSITORY environment variable is malformed: %s", repo)
 		githubactions.Errorf("Error: %v", err)
-		return "", err
+		return "", 0, err
 	}
-	owner, repo = splitRepo[0], splitRepo[1]
-	githubactions.Infof("Parsed GitHub repository owner: %s, repo: %s", owner, repo)
+	owner, repoName := splitRepo[0], splitRepo[1]
 
 	client := github.NewClient(nil).WithAuthToken(token)
 	opts := &github.ListWorkflowJobsOptions{
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 
-	var runJobs *github.Jobs
-	var resp *github.Response
-	var err error
-	var attempts int = 3 // Number of attempts for retrying API call
+	const attempts = 3 // Number of attempts for retrying API call
+	runnerName := os.Getenv("RUNNER_NAME")
 
 	for i := 0; i < attempts; i++ {
 		githubactions.Infof("Fetching workflow jobs from GitHub API, attempt %d/%d", i+1, attempts)
-		runJobs, resp, err = client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
-		if err == nil {
-			runnerName := os.Getenv("RUNNER_NAME")
-			githubactions.Infof("Looking for job with runner name: %s", runnerName)
-			for _, job := range runJobs.Jobs {
-				if job.RunnerName != nil && job.Name != nil && job.RunAttempt != nil {
-					githubactions.Infof("Inspecting job: %s, runner: %s, attempt: %d", *job.Name, *job.RunnerName, *job.RunAttempt)
-					if *job.RunAttempt == attempt && *job.RunnerName == runnerName {
-						githubactions.Infof("Match found, job name: %s", *job.Name)
-						return *job.Name, nil
-					}
-				}
-			}
-			githubactions.Infof("No matching job found on attempt %d", i+1)
-			if i < attempts-1 {
-				// Retry if the maximum number of attempts is not reached
-				time.Sleep(3 * time.Second) // Wait before retrying
-				continue
-			}
-		} else {
+		runJobs, resp, err := client.Actions.ListWorkflowJobs(ctx, owner, repoName, runID, opts)
+		if err != nil {
 			githubactions.Errorf("Failed to fetch workflow jobs: %v", err)
 			if resp != nil {
 				githubactions.Infof("GitHub API response status: %s", resp.Status)
@@ -299,23 +281,32 @@ func getGitHubJobName(ctx context.Context, token, owner, repo string, runID, att
 					}
 				}
 			}
-			if i < attempts-1 {
-				// Retry if the maximum number of attempts is not reached
-				time.Sleep(3 * time.Second) // Wait before retrying
-				continue
+		} else {
+			for _, job := range runJobs.Jobs {
+				if job.GetRunAttempt() != attempt {
+					continue
+				}
+				if preferredJobName != "" {
+					if job.GetName() == preferredJobName {
+						githubactions.Infof("Match found, job name: %s, id: %d", job.GetName(), job.GetID())
+						return job.GetName(), job.GetID(), nil
+					}
+					continue
+				}
+				if job.GetRunnerName() == runnerName {
+					githubactions.Infof("Match found, job name: %s, id: %d", job.GetName(), job.GetID())
+					return job.GetName(), job.GetID(), nil
+				}
 			}
+			githubactions.Infof("No matching job found on attempt %d", i+1)
 		}
-		break
+
+		if i < attempts-1 {
+			time.Sleep(3 * time.Second) // Wait before retrying
+		}
 	}
 
-	// Generate a fallback job span ID if no job is found after all attempts
-	spanID, genErr := generateJobSpanID(runID, int(attempt), "fallback-job")
-	if genErr != nil {
-		githubactions.Errorf("Error generating fallback job span ID: %v", genErr)
-		return "", fmt.Errorf("failed to retrieve job and generate fallback span ID: %v", genErr)
-	}
-	githubactions.Infof("No job found matching the criteria after %d attempts, using fallback span ID: %s", attempts, spanID)
-	return "fallback-job", nil
+	return "", 0, fmt.Errorf("no workflow job found for run ID %d attempt %d after %d attempts", runID, attempt, attempts)
 }
 
 func initTracer(endpoint string, serviceName string, attrs map[string]string, headers map[string]string) func() {
@@ -480,12 +471,9 @@ func main() {
 		githubactions.Fatalf("Failed to parse GITHUB_RUN_ATTEMPT: %v", err)
 	}
 
-	job := params.JobName
-	if job == "" {
-		job, err = getGitHubJobName(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY_OWNER"), os.Getenv("GITHUB_REPOSITORY"), runID, int64(runAttempt))
-		if err != nil {
-			githubactions.Fatalf("Failed to get job name: %v", err)
-		}
+	job, checkRunID, err := resolveWorkflowJob(ctx, params.GithubToken, os.Getenv("GITHUB_REPOSITORY"), params.JobName, runID, int64(runAttempt))
+	if err != nil {
+		githubactions.Fatalf("Failed to resolve GitHub job: %v", err)
 	}
 	githubactions.SetOutput("job-name", job)
 
@@ -508,12 +496,12 @@ func main() {
 	var parentSpandID trace.SpanID
 	jobAsParentInput := params.JobAsParent
 	if jobAsParentInput == "true" {
-		parentSpandID, err = generateJobSpanID(runID, runAttempt, job)
+		parentSpandID, err = generateJobSpanID(checkRunID)
 		if err != nil {
-			githubactions.Fatalf("Failed to generate step span ID: %v", err)
+			githubactions.Fatalf("Failed to generate job span ID: %v", err)
 		}
 	} else {
-		parentSpandID, err = generateStepSpanID(runID, runAttempt, job, params.StepName)
+		parentSpandID, err = generateStepSpanID(checkRunID, params.StepName)
 		if err != nil {
 			githubactions.Fatalf("Failed to generate step span ID: %v", err)
 		}
