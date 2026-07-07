@@ -78,6 +78,32 @@ func createEventAttributes(baseAttributes []trace.EventOption, stdout, stderr st
 	return baseAttributes
 }
 
+// cicdAttributes builds the CI/CD and VCS semantic-convention attributes
+// (https://opentelemetry.io/docs/specs/semconv/registry/attributes/cicd/,
+// https://opentelemetry.io/docs/specs/semconv/registry/attributes/vcs/)
+// that identify this step's execution, matching the attribute names the
+// OpenTelemetry Collector GitHub Actions Receiver sets on its own spans.
+func cicdAttributes(jobName string, checkRunID, runID int64, stepName string) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attribute.String(string(semconv.CICDPipelineTaskNameKey), stepName),
+		attribute.String(string(semconv.CICDPipelineTaskRunIDKey), strconv.FormatInt(checkRunID, 10)),
+		attribute.String(string(semconv.CICDPipelineRunIDKey), strconv.FormatInt(runID, 10)),
+		attribute.String(string(semconv.CICDPipelineNameKey), jobName),
+	}
+
+	if repo := os.Getenv("GITHUB_REPOSITORY"); repo != "" {
+		attrs = append(attrs, attribute.String(string(semconv.VCSRepositoryNameKey), repo))
+	}
+	if ref := os.Getenv("GITHUB_REF_NAME"); ref != "" {
+		attrs = append(attrs, attribute.String(string(semconv.VCSRefHeadNameKey), ref))
+	}
+	if sha := os.Getenv("GITHUB_SHA"); sha != "" {
+		attrs = append(attrs, attribute.String(string(semconv.VCSRefHeadRevisionKey), sha))
+	}
+
+	return attrs
+}
+
 func emitStepSummary(params InputParams, traceID trace.TraceID, spanID trace.SpanID, success bool) {
 	conclusion := "✅ success"
 	if !success {
@@ -532,6 +558,8 @@ func main() {
 
 	_, span := tracer.Start(ctx, spanName)
 	defer span.End()
+
+	span.SetAttributes(cicdAttributes(job, checkRunID, runID, params.StepName)...)
 
 	shell := githubactions.GetInput("shell")
 	githubactions.Infof("Executing command: %s with shell: %s", params.Run, shell)
