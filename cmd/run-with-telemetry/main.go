@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/go-github/v60/github"
+	"github.com/google/go-github/v78/github"
 	"github.com/sethvargo/go-githubactions"
 
 	"go.opentelemetry.io/otel"
@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
